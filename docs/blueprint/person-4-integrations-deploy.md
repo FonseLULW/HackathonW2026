@@ -1,6 +1,6 @@
 # Person 4: Integrations + Deployment + Dummy App
 
-## InteliLog | HackTheBreak 2026
+## Sherlog | HackTheBreak 2026
 
 ---
 
@@ -96,7 +96,7 @@ For hackathon: a 20-line Python/shell HTTP server that listens on 3002 and runs 
 
 ```
 # Caddyfile
-intelilog.example.com {
+Sherlog.example.com {
     reverse_proxy pipeline:3001
 }
 ```
@@ -113,7 +113,7 @@ caddy:
     - ./Caddyfile:/etc/caddy/Caddyfile
     - caddy-data:/data
   networks:
-    - intelilog
+    - Sherlog
 ```
 
 ---
@@ -140,12 +140,12 @@ caddy:
 
 ```bash
 # Create VM
-gcloud compute instances create intelilog-demo \
+gcloud compute instances create Sherlog-demo \
   --zone=us-west1-b --machine-type=e2-medium \
   --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud
 
 # Firewall
-gcloud compute firewall-rules create intelilog-allow \
+gcloud compute firewall-rules create Sherlog-allow \
   --allow tcp:80,tcp:443,tcp:3002
 
 # SSH → install Docker → clone repo → set .env → docker compose up -d
@@ -159,7 +159,7 @@ Dashboard: deploy to Vercel with `NEXT_PUBLIC_WS_URL=wss://<domain>/ws`
 
 **Primary path: Docker sidecar ingestion.** CLI shown separately.
 
-1. **Intro** (1 min) — "InteliLog tells you what went wrong, why, and where in your code"
+1. **Intro** (1 min) — "Sherlog tells you what went wrong, why, and where in your code"
 2. **Healthy state** (1 min) — dashboard shows green, filters working, no LLM calls
 3. **Trigger chaos** (30s) — `curl -X POST .../api/chaos/db-leak`
 4. **Watch cascade** (2 min) — scores climb, cheap model triages, agent investigates, tool calls visible

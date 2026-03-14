@@ -1,4 +1,4 @@
-# InteliLog — System Architecture Diagrams
+# Sherlog — System Architecture Diagrams
 
 ## 1. High-level pipeline flow
 
@@ -11,7 +11,7 @@ flowchart TD
         Syslog["Syslog"]
     end
 
-    subgraph Pipeline["InteliLog pipeline — FastAPI"]
+    subgraph Pipeline["Sherlog pipeline — FastAPI"]
         Ingest["Log ingestion + parsing"]
         Filter["Rule-based pre-filter"]
         ML["ML anomaly scorer\n(isolation forest)"]

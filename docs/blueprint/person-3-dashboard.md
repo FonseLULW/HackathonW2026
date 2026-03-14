@@ -1,6 +1,6 @@
 # Person 3: Dashboard
 
-## InteliLog | HackTheBreak 2026
+## Sherlog | HackTheBreak 2026
 
 ---
 
@@ -38,7 +38,7 @@ Single page, no routing.
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  InteliLog    ● Connected    [stats bar]        │
+│  Sherlog    ● Connected    [stats bar]        │
 ├────────────────────┬────────────────────────────┤
 │  Live log stream   │  Incident feed             │
 │  (scrolling, auto- │  (cards, click to expand)  │

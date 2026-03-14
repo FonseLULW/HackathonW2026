@@ -1,6 +1,6 @@
 # Person 2: LLM Cascade + Agent Framework
 
-## InteliLog | HackTheBreak 2026
+## Sherlog | HackTheBreak 2026
 
 ---
 

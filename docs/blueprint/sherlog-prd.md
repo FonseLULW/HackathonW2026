@@ -1,4 +1,4 @@
-# InteliLog — PRD v3
+# Sherlog — PRD v3
 
 ## HackTheBreak 2026 | March 13–15
 
@@ -10,11 +10,11 @@ Self-contained AI log intelligence pipeline: ingest logs → ML anomaly scoring 
 
 ## What makes this different
 
-Enterprise tools (Rootly, IncidentFox, Coroot) require mature observability stacks. InteliLog needs nothing but raw log input. No existing tool combines built-in ML scoring with a tiered LLM agent that reads your codebase, packaged as a single `docker compose up`.
+Enterprise tools (Rootly, IncidentFox, Coroot) require mature observability stacks. Sherlog needs nothing but raw log input. No existing tool combines built-in ML scoring with a tiered LLM agent that reads your codebase, packaged as a single `docker compose up`.
 
 ## Integration tiers
 
-- **CLI (zero code changes)** — `tail -f app.log | intelilog watch`
+- **CLI (zero code changes)** — `tail -f app.log | Sherlog watch`
 - **SDK (3 lines)** — lightweight HTTP wrapper for serverless (Firebase, Lambda)
 - **Webhook** — generic `POST /api/ingest` for CI/CD, GitHub Actions, anything
 
@@ -154,7 +154,7 @@ After this, everyone works independently against the shared interfaces.
 4. Watch cascade: scores climb → cheap model triages → escalation → agent investigates
 5. Incident report appears on dashboard AND Discord simultaneously
 6. Walk through report: root cause, code refs, suggested fix
-7. **Separately** show CLI: "Here's how you'd add this to your own app: `docker logs -f my-app | intelilog watch`"
+7. **Separately** show CLI: "Here's how you'd add this to your own app: `docker logs -f my-app | Sherlog watch`"
 8. Architecture explanation: tiered cascade, cost savings, security model
 
 ---
