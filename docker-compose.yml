@@ -1,0 +1,153 @@
+version: "3.9"
+
+services:
+  # ── Reverse proxy (TLS termination) ───────────────────────────────────
+  caddy:
+    image: caddy:2
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    networks:
+      - snooplog
+    depends_on:
+      - pipeline
+    restart: unless-stopped
+
+  # ── Pipeline (FastAPI + ML + LLM cascade + agent) ─────────────────────
+  pipeline:
+    build:
+      context: .
+      dockerfile: pipeline/Dockerfile
+    expose:
+      - "3001"
+    volumes:
+      - repo-data:/repo:ro
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - REPO_PATH=/repo
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    networks:
+      - snooplog
+    restart: unless-stopped
+
+  # ── Dummy e-commerce app (log source) ─────────────────────────────────
+  dummy-app:
+    build:
+      context: ./dummy-app
+    expose:
+      - "3000"
+    volumes:
+      - app-logs:/app/logs
+    networks:
+      - snooplog
+    restart: unless-stopped
+
+  # ── Log-forwarder sidecar ─────────────────────────────────────────────
+  log-forwarder:
+    build:
+      context: ./log-forwarder
+    volumes:
+      - app-logs:/logs:ro
+    environment:
+      - PIPELINE_URL=http://pipeline:3001/api/ingest
+      - LOG_FILE=/logs/app.log
+      - SOURCE=dummy-app
+    depends_on:
+      - pipeline
+      - dummy-app
+    networks:
+      - snooplog
+    restart: unless-stopped
+
+  # ── Traffic generator ─────────────────────────────────────────────────
+  traffic-gen:
+    build:
+      context: ./traffic-gen
+    environment:
+      - TARGET_URL=http://dummy-app:3000
+    depends_on:
+      - dummy-app
+    networks:
+      - snooplog
+    restart: unless-stopped
+
+  # ── Repo init (runs once at startup) ──────────────────────────────────
+  repo-init:
+    image: alpine/git
+    volumes:
+      - repo-data:/repo
+    environment:
+      - REPO_URL=${REPO_URL:-https://github.com/placeholder/repo.git}
+    entrypoint: >
+      sh -c '
+        if [ ! -d /repo/.git ]; then
+          echo "Cloning repo..."
+          git clone "$REPO_URL" /repo
+        else
+          echo "Repo already cloned, skipping."
+        fi
+      '
+    networks:
+      - snooplog
+    restart: "no"
+
+  # ── Repo sync (webhook → git pull) ───────────────────────────────────
+  repo-sync:
+    image: alpine/git
+    ports:
+      - "3002:3002"
+    volumes:
+      - repo-data:/repo
+    entrypoint: >
+      sh -c '
+        apk add --no-cache python3 &&
+        python3 -c "
+        import http.server, subprocess, json
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                result = subprocess.run([\"git\", \"-C\", \"/repo\", \"pull\"], capture_output=True, text=True)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps({\"stdout\": result.stdout, \"stderr\": result.stderr}).encode())
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b\"repo-sync ok\")
+
+        http.server.HTTPServer((\"0.0.0.0\", 3002), Handler).serve_forever()
+        "
+      '
+    depends_on:
+      repo-init:
+        condition: service_completed_successfully
+    networks:
+      - snooplog
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  repo-data:
+  app-logs:
+
+networks:
+  snooplog:
+    driver: bridge

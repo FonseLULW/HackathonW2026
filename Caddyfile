@@ -1,0 +1,5 @@
+# Caddy reverse proxy — auto TLS for the pipeline
+# Replace with your actual domain or use {$DOMAIN:localhost} for dev
+{$DOMAIN:localhost} {
+    reverse_proxy pipeline:3001
+}
