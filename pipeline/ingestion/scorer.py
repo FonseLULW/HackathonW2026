@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 
+from shared.config import scoring_boosts, scoring_level_base, scoring_long_message_threshold, tier_high, tier_medium
 from shared.models import LogEvent, Tier
 
 # Keywords that indicate serious problems
@@ -35,45 +36,37 @@ _WARN_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
-# Base scores by level
-_LEVEL_BASE: dict[str, float] = {
-    "fatal": 0.85,
-    "error": 0.55,
-    "warn": 0.25,
-    "info": 0.05,
-    "debug": 0.02,
-    "unknown": 0.15,
-}
-
-
 def heuristic_score(event: LogEvent) -> float:
     """Score a log event using heuristics. Returns 0.0-1.0."""
-    score = _LEVEL_BASE.get(event.level.value, 0.15)
+    level_base = scoring_level_base()
+    boosts = scoring_boosts()
+
+    score = level_base.get(event.level.value, 0.15)
     msg = event.message
 
     # Keyword boosts
     if _CRITICAL_KEYWORDS.search(msg):
-        score += 0.25
+        score += boosts.get("critical_keywords", 0.25)
     elif _ERROR_KEYWORDS.search(msg):
-        score += 0.15
+        score += boosts.get("error_keywords", 0.15)
     elif _WARN_KEYWORDS.search(msg):
-        score += 0.10
+        score += boosts.get("warn_keywords", 0.10)
 
     # Stack trace presence (multi-line with "at " or "Traceback")
     if "\n" in msg and (re.search(r"^\s+at ", msg, re.MULTILINE) or "Traceback" in msg):
-        score += 0.10
+        score += boosts.get("stack_trace", 0.10)
 
     # Long messages tend to be more interesting (errors have details)
-    if len(msg) > 200:
-        score += 0.05
+    if len(msg) > scoring_long_message_threshold():
+        score += boosts.get("long_message", 0.05)
 
     return min(score, 1.0)
 
 
 def assign_tier(score: float) -> Tier:
     """Map anomaly score to tier."""
-    if score > 0.7:
+    if score > tier_high():
         return Tier.HIGH
-    if score >= 0.3:
+    if score >= tier_medium():
         return Tier.MEDIUM
     return Tier.LOW

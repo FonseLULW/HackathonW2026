@@ -31,3 +31,4 @@ caddy-data/
 # ML models
 *.joblib
 *.pkl
+data/snapshots/

@@ -6,9 +6,9 @@ import re
 from collections import deque
 from typing import Any
 
-MAX_BUFFER_SIZE = 5000
+from shared.config import buffer_max_size
 
-_buffer: deque[dict[str, Any]] = deque(maxlen=MAX_BUFFER_SIZE)
+_buffer: deque[dict[str, Any]] = deque(maxlen=buffer_max_size())
 
 
 def add_to_log_buffer(log_event: dict[str, Any]) -> None:

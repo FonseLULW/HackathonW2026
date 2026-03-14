@@ -42,7 +42,7 @@ def fresh_scorer():
     Production uses 10k — the algorithm is the same, just needs more data to fill.
     """
     reset_state()
-    return AnomalyScorer(window_size=500)
+    return AnomalyScorer(window_size=500, enable_snapshots=False)
 
 
 # Normal log templates the app would produce regularly

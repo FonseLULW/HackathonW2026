@@ -17,12 +17,11 @@ import httpx
 import typer
 import yaml
 
+from shared.config import cli_batch_size, cli_default_endpoint, cli_flush_interval, cli_http_timeout
+
 app = typer.Typer(name="snooplog", help="SnoopLog CLI -- AI log intelligence")
 
 CONFIG_FILE = ".snooplog.yml"
-DEFAULT_ENDPOINT = "http://localhost:3001"
-BATCH_SIZE = 50
-FLUSH_INTERVAL = 2.0  # seconds
 
 
 @app.command()
@@ -34,7 +33,7 @@ def watch(
 ):
     """Watch logs from stdin or a file and send to the pipeline."""
     cfg = _load_config()
-    endpoint = endpoint or cfg.get("endpoint", DEFAULT_ENDPOINT)
+    endpoint = endpoint or cfg.get("endpoint", cli_default_endpoint())
     source = source or cfg.get("source", "cli")
 
     typer.echo(f"SnoopLog watching -> {endpoint} (source: {source})")
@@ -51,7 +50,7 @@ def watch(
                 continue
             batch.append(line)
 
-            if len(batch) >= BATCH_SIZE or (time.time() - last_flush) >= FLUSH_INTERVAL:
+            if len(batch) >= cli_batch_size() or (time.time() - last_flush) >= cli_flush_interval():
                 _flush(batch, endpoint, source, raw, stats)
                 batch.clear()
                 last_flush = time.time()
@@ -66,7 +65,7 @@ def watch(
 @app.command()
 def init():
     """Initialize a .snooplog.yml config file."""
-    endpoint = typer.prompt("Pipeline endpoint", default=DEFAULT_ENDPOINT)
+    endpoint = typer.prompt("Pipeline endpoint", default=cli_default_endpoint())
     source = typer.prompt("App/source name", default="my-app")
 
     config = {"endpoint": endpoint, "source": source}
@@ -106,7 +105,7 @@ def _flush(batch: list[str], endpoint: str, source: str, raw: bool, stats: dict)
 
     try:
         if raw:
-            resp = httpx.post(f"{endpoint}/api/ingest/raw", content="\n".join(batch), timeout=5)
+            resp = httpx.post(f"{endpoint}/api/ingest/raw", content="\n".join(batch), timeout=cli_http_timeout())
         else:
             logs = []
             for line in batch:
@@ -119,7 +118,7 @@ def _flush(batch: list[str], endpoint: str, source: str, raw: bool, stats: dict)
                     pass
                 # Not JSON -- wrap as structured log
                 logs.append({"source": source, "message": line, "level": "info"})
-            resp = httpx.post(f"{endpoint}/api/ingest", json=logs, timeout=5)
+            resp = httpx.post(f"{endpoint}/api/ingest", json=logs, timeout=cli_http_timeout())
 
         resp.raise_for_status()
         data = resp.json()

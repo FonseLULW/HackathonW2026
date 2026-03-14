@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 
+from shared.config import filter_debug_level, filter_health_checks, filter_k8s_probes, filter_static_assets
 from shared.models import LogEvent, LogLevel
 
 _HEALTH_PATTERNS = re.compile(
@@ -31,25 +32,25 @@ def apply_filters(event: LogEvent) -> LogEvent:
     source = event.source
 
     # Rule 1: debug-level logs
-    if event.level == LogLevel.DEBUG:
+    if filter_debug_level() and event.level == LogLevel.DEBUG:
         event.pipeline.filtered = True
         event.pipeline.filter_reason = "debug-level"
         return event
 
     # Rule 2: health checks
-    if _HEALTH_PATTERNS.search(msg):
+    if filter_health_checks() and _HEALTH_PATTERNS.search(msg):
         event.pipeline.filtered = True
         event.pipeline.filter_reason = "health-check"
         return event
 
     # Rule 3: static assets
-    if _STATIC_PATTERNS.search(msg):
+    if filter_static_assets() and _STATIC_PATTERNS.search(msg):
         event.pipeline.filtered = True
         event.pipeline.filter_reason = "static-asset"
         return event
 
     # Rule 4: k8s probes
-    if _K8S_PATTERNS.search(msg) or _K8S_PATTERNS.search(source):
+    if filter_k8s_probes() and (_K8S_PATTERNS.search(msg) or _K8S_PATTERNS.search(source)):
         event.pipeline.filtered = True
         event.pipeline.filter_reason = "k8s-probe"
         return event

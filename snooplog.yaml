@@ -1,0 +1,93 @@
+# ============================================================
+# SnoopLog Configuration
+# ============================================================
+# Central config for the SnoopLog AI log intelligence pipeline.
+# All sections are optional -- defaults are used for any missing values.
+# See docs/config.md for full documentation.
+# ============================================================
+
+# --- ML Anomaly Detection (Half-Space Trees) ---
+ml:
+  n_trees: 25              # number of trees in the ensemble
+  tree_height: 6           # depth of each half-space tree
+  window_size: 10000       # sliding window size (logs) -- controls how fast model forgets
+  max_weight: 0.4          # max ML influence in blended score (0.0-1.0)
+  snapshot_interval: 1000  # save model snapshot every N logs (0 = disabled)
+
+# --- Snapshots (model + state persistence across restarts) ---
+snapshots:
+  backend: "local"               # "local" for disk, "gcs" for Google Cloud Storage
+  local_dir: "data/snapshots"    # local backend: directory for snapshot files
+  gcs_bucket: ""                 # gcs backend: bucket name (e.g. "my-project-snapshots")
+  gcs_prefix: "snapshots"        # gcs backend: prefix/folder inside the bucket
+
+# --- Feature Extraction ---
+features:
+  error_window_maxlen: 1000    # max error timestamps to track
+  secs_since_error_cap: 300    # cap "seconds since last error" at this value
+  error_burst_window: 5        # seconds to look back for error burst detection
+
+# --- Heuristic Scorer ---
+scoring:
+  level_base:
+    fatal: 0.85
+    error: 0.55
+    warn: 0.25
+    info: 0.05
+    debug: 0.02
+    unknown: 0.15
+  boosts:
+    critical_keywords: 0.25
+    error_keywords: 0.15
+    warn_keywords: 0.10
+    stack_trace: 0.10
+    long_message: 0.05
+  long_message_threshold: 200   # chars -- messages longer than this get a boost
+
+# --- Tier Thresholds ---
+tiers:
+  high: 0.7      # score > this -> HIGH (sent to reasoning model)
+  medium: 0.3    # score >= this -> MEDIUM (sent to cheap model)
+  # anything below medium -> LOW (archived, no LLM call)
+
+# --- Pre-Filters ---
+filters:
+  debug_level: true        # filter out debug-level logs
+  health_checks: true      # filter /health, /readiness, etc.
+  static_assets: true      # filter GET /static/*.css etc.
+  k8s_probes: true         # filter kube-probe, GoogleHC, etc.
+
+# --- Log Buffer ---
+buffer:
+  max_size: 5000           # max log events kept in memory for search_logs
+
+# --- CLI Defaults ---
+cli:
+  default_endpoint: "http://localhost:3001"
+  batch_size: 50
+  flush_interval: 2.0      # seconds between batch flushes
+  http_timeout: 5           # seconds
+
+# ============================================================
+# Other pipeline sections (for integration -- not yet wired)
+# ============================================================
+
+# --- LLM Triage (Person 2) ---
+# triage:
+#   high_model: "claude-sonnet-4-20250514"    # model for HIGH tier logs
+#   medium_model: "claude-haiku-4-5-20251001" # model for MEDIUM tier logs
+#   max_tokens: 1024
+#   temperature: 0.2
+#   timeout: 30
+
+# --- Dashboard (Person 3) ---
+# dashboard:
+#   port: 3000
+#   ws_reconnect_interval: 3    # seconds
+#   max_logs_display: 200
+
+# --- Dummy App / Traffic Gen (Person 4) ---
+# dummy_app:
+#   log_interval: 0.5           # seconds between log lines
+#   error_probability: 0.05
+#   port: 4000
