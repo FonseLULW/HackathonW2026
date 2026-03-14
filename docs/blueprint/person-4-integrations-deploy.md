@@ -1,4 +1,4 @@
-# Person 4: Integrations + Deployment + Dummy App - Implementation Spec
+# Person 4: Integrations + Deployment + Dummy App — Implementation Spec
 
 ## InteliLog | HackTheBreak 2026
 
@@ -6,35 +6,29 @@
 
 ## Your role
 
-You own three critical things: the output integrations (getting incident reports to Discord), the deployment infrastructure (Docker Compose on GCP), and the dummy app that generates realistic logs for the demo. You also own the demo script - making sure the end-to-end experience works flawlessly during judging. This role is underrated but make-or-break: if the demo does not work live, nothing else matters.
+You own three critical things: the output integrations (Discord webhooks, GitHub repo sync), the deployment infrastructure (Docker Compose on GCP), and the dummy app that generates realistic logs for the demo. You also own the demo script — the end-to-end experience during judging. This role is make-or-break: if the demo doesn't work live, nothing else matters.
 
 ---
 
 ## Deliverables
 
-1. **Dummy e-commerce app** - Next.js API with triggerable failures and structured logging
-2. **Discord webhook integration** - formatted incident reports delivered to a channel
-3. **Docker Compose setup** - full stack containerized and runnable
-4. **GCP deployment** - everything running on Compute Engine or Cloud Run
-5. **Demo script** - reliable, rehearsed sequence for judging
+1. **Dummy e-commerce app** — Next.js API with triggerable failures and structured logging
+2. **Discord webhook integration** — formatted incident reports
+3. **GitHub repo sync webhook** — keeps agent's code view up to date
+4. **Docker Compose setup** — full stack containerized
+5. **GCP deployment** — everything running on Compute Engine
+6. **Demo script** — reliable, rehearsed sequence for judging
 
 ---
 
 ## 1. Dummy e-commerce app
 
-A simple Next.js API that simulates an e-commerce backend. It produces structured JSON logs to stdout, which Docker captures and routes to InteliLog.
-
-### Project setup
-
-```bash
-npx create-next-app@latest dummy-app --ts --app --tailwind
-cd dummy-app
-```
+A Next.js API that simulates an e-commerce backend with triggerable chaos modes.
 
 ### Logger utility
 
 ```typescript
-// lib/logger.ts
+// dummy-app/lib/logger.ts
 type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 
 export function log(level: LogLevel, service: string, message: string, meta?: object) {
@@ -43,17 +37,60 @@ export function log(level: LogLevel, service: string, message: string, meta?: ob
     level,
     service,
     message,
-    ...meta && { metadata: meta }
+    ...(meta && { metadata: meta }),
   };
-  // Write to stdout as JSON - Docker captures this
   process.stdout.write(JSON.stringify(entry) + '\n');
 }
 ```
 
-### API endpoints
+### Chaos system
 
 ```typescript
-// app/api/products/route.ts
+// dummy-app/lib/chaos.ts
+export const chaosState = {
+  dbLeak: false,
+  poolUsage: 30,
+  slowQuery: false,
+  authFail: false,
+  memoryLeak: false,
+  memoryUsageMB: 128,
+};
+
+export function activateChaos(mode: string) {
+  switch (mode) {
+    case 'db-leak':
+      chaosState.dbLeak = true;
+      chaosState.poolUsage = 30;
+      break;
+    case 'slow-query':
+      chaosState.slowQuery = true;
+      break;
+    case 'auth-fail':
+      chaosState.authFail = true;
+      break;
+    case 'memory':
+      chaosState.memoryLeak = true;
+      const leak: Buffer[] = [];
+      const interval = setInterval(() => {
+        leak.push(Buffer.alloc(1024 * 1024 * 10));
+        chaosState.memoryUsageMB += 10;
+      }, 2000);
+      setTimeout(() => clearInterval(interval), 60000);
+      break;
+    case 'reset':
+      Object.assign(chaosState, {
+        dbLeak: false, poolUsage: 30, slowQuery: false,
+        authFail: false, memoryLeak: false, memoryUsageMB: 128,
+      });
+      break;
+  }
+}
+```
+
+### API routes
+
+```typescript
+// dummy-app/app/api/products/route.ts
 import { log } from '@/lib/logger';
 
 const products = [
@@ -70,7 +107,7 @@ export async function GET() {
 ```
 
 ```typescript
-// app/api/orders/route.ts
+// dummy-app/app/api/orders/route.ts
 import { log } from '@/lib/logger';
 import { chaosState } from '@/lib/chaos';
 
@@ -78,16 +115,16 @@ export async function POST(req: Request) {
   const body = await req.json();
   const start = Date.now();
 
-  // Check for active chaos modes
   if (chaosState.dbLeak) {
-    log('warn', 'order-service', `Connection pool at ${chaosState.poolUsage}% capacity`);
     chaosState.poolUsage = Math.min(100, chaosState.poolUsage + 5);
+    log('warn', 'order-service', `Connection pool at ${chaosState.poolUsage}% capacity`, {
+      pool_size: 20, active: Math.floor(chaosState.poolUsage / 5),
+    });
 
     if (chaosState.poolUsage >= 95) {
-      log('error', 'order-service', 'FATAL: too many connections for role "postgres" - connection pool exhausted after 500 retries', {
-        pool_size: 20,
-        active_connections: 20,
-        waiting_queries: 47
+      log('error', 'order-service',
+        'FATAL: too many connections for role "postgres" - connection pool exhausted after 500 retries', {
+        pool_size: 20, active_connections: 20, waiting_queries: 47,
       });
       return Response.json({ error: 'Service unavailable' }, { status: 503 });
     }
@@ -96,31 +133,28 @@ export async function POST(req: Request) {
   if (chaosState.slowQuery) {
     const delay = 3000 + Math.random() * 5000;
     await new Promise(r => setTimeout(r, delay));
-    log('warn', 'order-service', `Slow query detected: INSERT INTO orders took ${delay.toFixed(0)}ms`, {
-      query_time_ms: delay,
-      threshold_ms: 1000
+    log('warn', 'order-service', `Slow query: INSERT INTO orders took ${delay.toFixed(0)}ms`, {
+      query_time_ms: delay, threshold_ms: 1000,
     });
   }
 
   if (chaosState.authFail && Math.random() > 0.5) {
     log('error', 'auth-service', 'JWT verification failed: token signature invalid', {
-      user_id: body.user_id,
-      endpoint: '/api/orders'
+      user_id: body.user_id, endpoint: '/api/orders',
     });
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const orderId = crypto.randomUUID();
   log('info', 'order-service', `POST /api/orders 201 ${Date.now() - start}ms`, {
-    order_id: crypto.randomUUID(),
-    items: body.items?.length || 0
+    order_id: orderId, items: body.items?.length || 0,
   });
-
-  return Response.json({ order_id: crypto.randomUUID(), status: 'created' }, { status: 201 });
+  return Response.json({ order_id: orderId, status: 'created' }, { status: 201 });
 }
 ```
 
 ```typescript
-// app/api/health/route.ts
+// dummy-app/app/api/health/route.ts
 import { log } from '@/lib/logger';
 
 export async function GET() {
@@ -129,113 +163,69 @@ export async function GET() {
 }
 ```
 
-### Chaos system
-
 ```typescript
-// lib/chaos.ts
-export const chaosState = {
-  dbLeak: false,
-  poolUsage: 30,     // Starts at 30% (normal)
-  memoryLeak: false,
-  memoryUsageMB: 128,
-  slowQuery: false,
-  authFail: false,
-};
-
-export function activateChaos(mode: string) {
-  switch (mode) {
-    case 'db-leak':
-      chaosState.dbLeak = true;
-      chaosState.poolUsage = 30;
-      break;
-    case 'memory':
-      chaosState.memoryLeak = true;
-      // Allocate memory gradually
-      const leak: Buffer[] = [];
-      const interval = setInterval(() => {
-        leak.push(Buffer.alloc(1024 * 1024 * 10)); // 10MB
-        chaosState.memoryUsageMB += 10;
-      }, 2000);
-      setTimeout(() => clearInterval(interval), 60000); // Stop after 60s
-      break;
-    case 'slow-query':
-      chaosState.slowQuery = true;
-      break;
-    case 'auth-fail':
-      chaosState.authFail = true;
-      break;
-    case 'reset':
-      chaosState.dbLeak = false;
-      chaosState.poolUsage = 30;
-      chaosState.memoryLeak = false;
-      chaosState.memoryUsageMB = 128;
-      chaosState.slowQuery = false;
-      chaosState.authFail = false;
-      break;
-  }
-}
-```
-
-```typescript
-// app/api/chaos/[mode]/route.ts
+// dummy-app/app/api/chaos/[mode]/route.ts
 import { activateChaos, chaosState } from '@/lib/chaos';
 import { log } from '@/lib/logger';
 
-export async function POST(req: Request, { params }: { params: { mode: string } }) {
-  const mode = params.mode;
-  activateChaos(mode);
-  log('info', 'chaos-controller', `Chaos mode activated: ${mode}`);
-  return Response.json({ mode, state: chaosState });
+export async function POST(_req: Request, { params }: { params: { mode: string } }) {
+  activateChaos(params.mode);
+  log('info', 'chaos-controller', `Chaos mode activated: ${params.mode}`);
+  return Response.json({ mode: params.mode, state: chaosState });
 }
 ```
 
 ### Traffic generator
 
-A script that simulates normal traffic to the dummy app, creating a baseline of healthy logs:
+Simulates normal users hitting the API:
 
 ```typescript
-// scripts/traffic.ts
+// dummy-app/scripts/traffic.ts
 const BASE_URL = process.env.DUMMY_APP_URL || 'http://localhost:3000';
-
-async function generateTraffic() {
-  while (true) {
-    // Normal operations
-    await fetch(`${BASE_URL}/api/products`);
-    await sleep(randomBetween(500, 2000));
-
-    await fetch(`${BASE_URL}/api/orders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: `user-${Math.floor(Math.random() * 100)}`,
-        items: [{ product_id: 1, qty: 1 }]
-      })
-    });
-    await sleep(randomBetween(1000, 3000));
-
-    // Health checks (frequent)
-    await fetch(`${BASE_URL}/api/health`);
-    await sleep(randomBetween(200, 500));
-  }
-}
 
 function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-function randomBetween(min: number, max: number) {
+function rand(min: number, max: number) {
   return Math.floor(Math.random() * (max - min) + min);
 }
 
-generateTraffic().catch(console.error);
+async function run() {
+  console.log(`Traffic generator targeting ${BASE_URL}`);
+  while (true) {
+    try {
+      await fetch(`${BASE_URL}/api/products`);
+      await sleep(rand(500, 2000));
+
+      await fetch(`${BASE_URL}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: `user-${rand(1, 100)}`,
+          items: [{ product_id: rand(1, 3), qty: 1 }],
+        }),
+      });
+      await sleep(rand(1000, 3000));
+
+      await fetch(`${BASE_URL}/api/health`);
+      await sleep(rand(200, 500));
+    } catch (err) {
+      console.error('Traffic error:', err);
+      await sleep(5000);
+    }
+  }
+}
+
+run();
 ```
 
-### Log forwarding to InteliLog
+### Log forwarder
 
-The dummy app writes JSON logs to stdout. A sidecar process reads stdout and POSTs to InteliLog:
+Reads the dummy app's stdout and POSTs batches to InteliLog:
 
 ```typescript
-// scripts/log-forwarder.ts
+// dummy-app/scripts/log-forwarder.ts
 import { createInterface } from 'readline';
 
 const INTELILOG_URL = process.env.INTELILOG_URL || 'http://localhost:3001/api/ingest';
@@ -248,12 +238,9 @@ const rl = createInterface({ input: process.stdin });
 
 rl.on('line', (line) => {
   try {
-    const log = JSON.parse(line);
-    batch.push(log);
+    batch.push(JSON.parse(line));
     if (batch.length >= BATCH_SIZE) flush();
-  } catch {
-    // Not JSON, skip
-  }
+  } catch {}
 });
 
 setInterval(flush, FLUSH_INTERVAL);
@@ -265,155 +252,181 @@ async function flush() {
     await fetch(INTELILOG_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source: 'dummy-ecommerce-api', logs })
+      body: JSON.stringify({ source: 'dummy-ecommerce-api', logs }),
     });
   } catch (err) {
-    console.error('Failed to forward logs:', err);
+    console.error('Forward failed:', err);
   }
 }
-```
-
-In Docker, pipe the app's stdout through the forwarder:
-
-```dockerfile
-CMD ["sh", "-c", "node server.js 2>&1 | node scripts/log-forwarder.js"]
 ```
 
 ---
 
 ## 2. Discord webhook integration
 
-### Setup
-
-Create a Discord webhook URL in a channel dedicated to InteliLog alerts.
-
-### Formatting incident reports
-
 ```python
-# integrations/discord.py
-import os
-
+# pipeline/integrations/discord.py
 import httpx
+from shared.events import bus
+from shared.config import DISCORD_WEBHOOK_URL
 
-DISCORD_WEBHOOK_URL = os.environ["DISCORD_WEBHOOK_URL"]
+SEVERITY_COLORS = {
+    "critical": 0xFF0000,
+    "high": 0xFF6600,
+    "medium": 0xFFAA00,
+    "low": 0x00CC00,
+    "unknown": 0x808080,
+}
 
+SEVERITY_EMOJI = {
+    "critical": "🔴",
+    "high": "🟠",
+    "medium": "🟡",
+    "low": "🟢",
+    "unknown": "⚪",
+}
 
-async def send_incident_to_discord(incident: dict) -> None:
-    severity_badge = {
-        "critical": "[CRITICAL]",
-        "high": "[HIGH]",
-        "medium": "[MEDIUM]",
-        "low": "[LOW]",
-    }
+async def send_to_discord(event: dict):
+    if not DISCORD_WEBHOOK_URL:
+        return
+
+    incident = event.get("incident", {})
+    severity = incident.get("severity", "unknown")
 
     embed = {
-        "title": f"{severity_badge.get(incident['incident']['severity'], '[UNKNOWN]')} Incident: {incident['incident']['severity'].upper()}",
-        "description": incident["incident"]["report"],
-        "color": {
-            "critical": 0xFF0000,
-            "high": 0xFF6600,
-            "medium": 0xFFAA00,
-            "low": 0x00CC00,
-        }.get(incident["incident"]["severity"], 0x999999),
+        "title": f"{SEVERITY_EMOJI.get(severity, '⚪')} Incident: {severity.upper()}",
+        "description": incident.get("report", "No details available"),
+        "color": SEVERITY_COLORS.get(severity, 0x808080),
         "fields": [
             {
                 "name": "Root cause",
-                "value": incident["incident"].get("root_cause") or "Still investigating...",
+                "value": incident.get("root_cause") or "Still investigating...",
                 "inline": False,
             },
             {
                 "name": "Source",
-                "value": f"`{incident['source']}` at {incident['timestamp']}",
+                "value": f"`{event.get('source', '?')}` at {event.get('timestamp', '?')}",
                 "inline": True,
             },
             {
                 "name": "Anomaly score",
-                "value": f"{incident['pipeline']['anomaly_score']:.2f}",
+                "value": str(round(event.get("pipeline", {}).get("anomaly_score", 0), 2)),
                 "inline": True,
             },
         ],
-        "timestamp": incident["timestamp"],
+        "timestamp": event.get("timestamp"),
     }
 
-    # Add code references if present
-    if incident["incident"].get("code_refs"):
-        refs = "\n".join(
-            f"`{ref['file']}:{ref['line']}` - {ref['blame_author']} ({ref['blame_date']})"
-            for ref in incident["incident"]["code_refs"]
+    # Code references
+    code_refs = incident.get("code_refs", [])
+    if code_refs:
+        refs_text = "\n".join(
+            f"`{ref['file']}:{ref.get('line', '?')}` — {ref.get('blame_author', '?')} ({ref.get('blame_date', '?')})"
+            for ref in code_refs
         )
-        embed["fields"].append(
-            {
-                "name": "Code references",
-                "value": refs,
-                "inline": False,
-            }
-        )
+        embed["fields"].append({"name": "Code references", "value": refs_text, "inline": False})
 
-    # Add suggested fix
-    if incident["incident"].get("suggested_fix"):
-        embed["fields"].append(
-            {
-                "name": "Suggested fix",
-                "value": incident["incident"]["suggested_fix"],
-                "inline": False,
-            }
-        )
+    # Suggested fix
+    if incident.get("suggested_fix"):
+        embed["fields"].append({"name": "Suggested fix", "value": incident["suggested_fix"], "inline": False})
 
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient() as client:
         await client.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]})
-```
 
-### Wire it up
-
-```python
-from events.bus import pipeline
-
-
-async def discord_listener() -> None:
-    queue = pipeline.subscribe("incident:created")
-
-    while True:
-        log_event = await queue.get()
-        try:
-            await send_incident_to_discord(log_event)
-        except Exception as err:
-            print(f"Discord webhook failed: {err}")
+# Subscribe to incidents
+bus.subscribe("incident:created", send_to_discord)
 ```
 
 ---
 
-## 3. Docker Compose setup
+## 3. GitHub repo sync webhook
 
-### docker-compose.yml
+When code is pushed, re-clone the repo so the agent always investigates the latest code.
+
+```python
+# pipeline/integrations/github.py
+import subprocess
+import hmac
+import hashlib
+from fastapi import APIRouter, Request, HTTPException
+from shared.config import REPO_PATH, GITHUB_WEBHOOK_SECRET
+
+router = APIRouter()
+
+@router.post("/api/hooks/github")
+async def github_push_hook(request: Request):
+    body = await request.body()
+
+    # Verify webhook signature (if secret is configured)
+    if GITHUB_WEBHOOK_SECRET:
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        expected = "sha256=" + hmac.new(
+            GITHUB_WEBHOOK_SECRET.encode(), body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise HTTPException(status_code=403, detail="Invalid signature")
+
+    # Pull latest code
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_PATH), "pull", "--ff-only"],
+            capture_output=True, text=True, timeout=30,
+        )
+        return {
+            "status": "updated",
+            "output": result.stdout.strip(),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+```
+
+---
+
+## 4. Docker Compose
 
 ```yaml
+# docker-compose.yml
 version: '3.8'
 
 services:
-  # The InteliLog pipeline (Person 1 + Person 2)
+  # InteliLog pipeline (FastAPI — Person 1 + 2 code)
   pipeline:
-    build: ./pipeline
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "3001:3001"
+    user: "1000:1000"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
       - REPO_PATH=/repo
-      - PYTHONUNBUFFERED=1
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
     volumes:
       - repo-data:/repo:ro
     networks:
       - intelilog
     depends_on:
-      - repo-init
+      repo-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
 
-  # Agent container (isolated, restricted)
-  # If agent runs in same process as pipeline, this is not needed.
-  # Include if you want stricter isolation for the agent's file access.
-
-  # Dummy e-commerce app
+  # Dummy e-commerce app (Next.js)
   dummy-app:
-    build: ./dummy-app
+    build:
+      context: ./dummy-app
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
     environment:
@@ -423,7 +436,7 @@ services:
     depends_on:
       - pipeline
 
-  # Traffic generator (simulates users)
+  # Traffic simulator
   traffic-gen:
     build:
       context: ./dummy-app
@@ -434,14 +447,17 @@ services:
       - intelilog
     depends_on:
       - dummy-app
+    restart: unless-stopped
 
-  # Init container: clones the dummy app repo for agent access
+  # Init container: clones dummy app repo for agent access
   repo-init:
     image: alpine/git
     command: >
       sh -c "
         if [ ! -d /repo/.git ]; then
-          git clone --depth 1 https://github.com/YOUR_TEAM/dummy-app.git /repo
+          git clone --depth 1 https://github.com/YOUR_TEAM/dummy-app.git /repo;
+        else
+          echo 'Repo already cloned';
         fi
       "
     volumes:
@@ -458,25 +474,29 @@ networks:
 ### Pipeline Dockerfile
 
 ```dockerfile
-# pipeline/Dockerfile
+# Dockerfile (pipeline)
 FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git grep \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY requirements.txt ./
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy pre-trained ML model
+COPY shared/ ./shared/
+COPY pipeline/ ./pipeline/
 COPY models/ ./models/
+COPY main.py .
 
-COPY src/ ./src/
-
-# Non-root user for security
-RUN adduser --disabled-password --gecos "" intelilog
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash intelilog
 USER intelilog
 
 EXPOSE 3001
-CMD ["python", "-m", "uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "3001"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3001"]
 ```
 
 ### Dummy app Dockerfile
@@ -487,89 +507,79 @@ FROM node:20-slim
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --production
+RUN npm ci
 COPY . .
 RUN npm run build
 
 EXPOSE 3000
-# Pipe stdout through the log forwarder
+# Pipe stdout through log forwarder
 CMD ["sh", "-c", "node .next/standalone/server.js 2>&1 | node scripts/log-forwarder.js"]
 ```
 
-### Agent security (applied to pipeline container)
+### Traffic generator Dockerfile
 
-If the agent tools run inside the pipeline container (simplest approach for hackathon), enforce restrictions via the volume mount:
+```dockerfile
+# dummy-app/Dockerfile.traffic
+FROM node:20-slim
 
-- Repo volume is mounted **read-only** (`:ro`)
-- Pipeline runs as non-root user `intelilog`
-- The `subprocess.run(..., timeout=...)` calls in the agent executor prevent hangs
-- No network access beyond what the pipeline needs (OpenRouter API)
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY scripts/traffic.ts ./scripts/
+COPY tsconfig.json ./
 
-For stricter isolation (stretch goal), run agent tools in a separate container with:
-```yaml
-agent:
-  user: "1000:1000"
-  read_only: true
-  security_opt:
-    - no-new-privileges:true
-  cap_drop:
-    - ALL
-  volumes:
-    - repo-data:/repo:ro
+CMD ["npx", "tsx", "scripts/traffic.ts"]
 ```
 
 ---
 
-## 4. GCP deployment
+## 5. GCP deployment
 
-### Option A: Compute Engine (simplest)
+### Provision and deploy
 
 ```bash
-# Create a VM
+# Create VM
 gcloud compute instances create intelilog-demo \
   --zone=us-west1-b \
   --machine-type=e2-medium \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=30GB \
-  --tags=http-server,https-server
+  --tags=http-server
 
-# SSH in and set up
-gcloud compute ssh intelilog-demo
-
-# Install Docker
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-
-# Clone the repo
-git clone https://github.com/YOUR_TEAM/intelilog.git
-cd intelilog
-
-# Set environment variables
-echo "OPENROUTER_API_KEY=your-key" >> .env
-echo "DISCORD_WEBHOOK_URL=your-webhook" >> .env
-
-# Launch
-docker compose up -d
-```
-
-Open firewall rules for ports 3001 (pipeline API/WebSocket) and 3000 (dummy app, optional).
-
-```bash
+# Open ports
 gcloud compute firewall-rules create intelilog-allow \
   --allow tcp:3001,tcp:3000 \
   --target-tags=http-server
+
+# SSH and setup
+gcloud compute ssh intelilog-demo --zone=us-west1-b
+
+# On the VM:
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# Log out and back in for group to take effect
+
+git clone https://github.com/YOUR_TEAM/intelilog.git
+cd intelilog
+
+# Set env vars
+cat > .env << EOF
+OPENROUTER_API_KEY=your-key-here
+DISCORD_WEBHOOK_URL=your-webhook-url-here
+GITHUB_WEBHOOK_SECRET=your-secret-here
+EOF
+
+# Launch
+docker compose up -d
+
+# Check logs
+docker compose logs -f pipeline
 ```
-
-### Option B: Cloud Run (stretch goal)
-
-Cloud Run is trickier with Docker Compose (multiple services). If you go this route, deploy the pipeline as a Cloud Run service and the dummy app as another, with the repo volume as a mounted Cloud Storage bucket.
-
-For the hackathon, Compute Engine is faster to get working.
 
 ### Dashboard (Vercel)
 
-The dashboard deploys separately to Vercel. Set the environment variable:
+Deploy dashboard separately. Set environment variable in Vercel:
 
 ```
 NEXT_PUBLIC_WS_URL=ws://<GCP_EXTERNAL_IP>:3001/ws
@@ -577,50 +587,51 @@ NEXT_PUBLIC_WS_URL=ws://<GCP_EXTERNAL_IP>:3001/ws
 
 ---
 
-## 5. Demo script
-
-This is the most important deliverable for judging. Rehearse this multiple times.
+## 6. Demo script
 
 ### Pre-demo checklist
 
-- [ ] Docker Compose stack running on GCP
-- [ ] Dashboard live on Vercel, connected to WebSocket
-- [ ] Discord channel open and visible
+- [ ] Docker Compose running on GCP (`docker compose ps` — all healthy)
+- [ ] Dashboard live on Vercel and connected (green dot)
+- [ ] Discord channel visible on screen
 - [ ] Traffic generator running (healthy logs flowing)
-- [ ] All chaos modes reset
+- [ ] All chaos modes reset: `curl -X POST http://<IP>:3000/api/chaos/reset`
 
 ### Demo sequence (5-7 minutes)
 
-**[0:00] Introduction** (1 min)
-"InteliLog is an AI-powered log intelligence pipeline. Traditional monitoring tells you something is wrong. InteliLog tells you what went wrong, why, and where in your code it happened."
+**[0:00] Intro** (1 min)
+"InteliLog is an AI log intelligence pipeline. Traditional monitoring tells you something is wrong. InteliLog tells you what went wrong, why, and where in your code."
 
 **[1:00] Show healthy state** (1 min)
-Dashboard visible. Logs streaming in. All green. Stats show logs being filtered (health checks) and scored low. "Right now the system is healthy. Our ML model scores every log, and the cascade is saving money by not sending anything to an LLM."
+Point at dashboard. Logs streaming, all green. Stats showing filters working. "Our ML model scores every log. The tiered cascade saves money — nothing is hitting an LLM right now."
 
-**[2:00] Trigger chaos** (30 sec)
+**[2:00] Show integration simplicity** (30 sec)
+"Adding InteliLog to any app is one command: `docker logs -f my-app | intelilog watch`. Zero code changes."
+
+**[2:30] Trigger chaos** (30 sec)
 ```bash
 curl -X POST http://<GCP_IP>:3000/api/chaos/db-leak
 ```
-"We just triggered a database connection leak in our demo app."
+"We just triggered a database connection leak."
 
-**[2:30] Watch the cascade** (2 min)
-Dashboard shows anomaly scores climbing. First warnings hit the cheap model. "Watch the triage - the cheap model is seeing elevated warnings but has not escalated yet." Then errors spike. High-anomaly logs go straight to the reasoning model. Agent activity feed lights up - "The AI is now investigating. It is reading the source code, checking git blame, searching for related errors."
+**[3:00] Watch the cascade** (2 min)
+Dashboard: scores climbing, warnings hit cheap model, then errors spike. High-anomaly → reasoning model. Agent activity feed lights up. "The cheap model triaged the first warnings. Now the reasoning model is investigating — watch it read the source code and check git blame."
 
-**[4:30] Incident report arrives** (1 min)
-Report appears on dashboard AND in Discord simultaneously. Walk through it: "Here is the root cause analysis. The AI found the exact file and line that caused the issue, who committed it, and is suggesting a fix."
+**[5:00] Incident report** (1 min)
+Report appears on dashboard AND Discord simultaneously. Walk through: root cause, code reference, suggested fix.
 
-**[5:30] Architecture walkthrough** (1-2 min)
-Brief explanation of the tiered cascade, ML scoring, agent sandboxing. "The key insight is cost efficiency - 90% of logs never touch an LLM. Only the truly anomalous ones trigger an investigation."
+**[6:00] Architecture** (1 min)
+Tiered cascade, ML + LLM separation, agent sandboxing, cost efficiency. "90% of logs never touch an LLM."
 
-**[6:30] Q&A**
+**[7:00] Q&A**
 
 ### Backup plan
 
-If the live demo fails, have screenshots and a screen recording ready. Record a successful run the night before as insurance.
+Record a successful demo run the night before. If live demo fails, play the recording while explaining the architecture. Have screenshots for Devpost regardless.
 
 ```bash
-# Record terminal session (optional)
-asciinema rec demo.cast
+# Record terminal (optional)
+asciinema rec demo-backup.cast
 ```
 
 ---
@@ -628,49 +639,51 @@ asciinema rec demo.cast
 ## File structure
 
 ```
-/
-  docker-compose.yml
-  .env.example
-  /pipeline             # Person 1 + 2's Python/FastAPI code
-  /dummy-app
-    /app
-      /api
-        /products/route.ts
-        /orders/route.ts
-        /health/route.ts
-        /chaos/[mode]/route.ts
-    /lib
-      logger.ts
-      chaos.ts
-    /scripts
-      traffic.ts
-      log-forwarder.ts
-    Dockerfile
-    Dockerfile.traffic
-  /dashboard            # Person 3's code (deployed to Vercel separately)
+dummy-app/
+  app/
+    api/
+      products/route.ts
+      orders/route.ts
+      health/route.ts
+      chaos/[mode]/route.ts
+  lib/
+    logger.ts
+    chaos.ts
+  scripts/
+    traffic.ts
+    log-forwarder.ts
+  Dockerfile
+  Dockerfile.traffic
+  package.json
+pipeline/
+  integrations/
+    discord.py
+    github.py
+docker-compose.yml
+Dockerfile
+.env.example
 ```
 
 ---
 
-## Coordination with other tracks
+## Coordination
 
-- **Person 1** needs your dummy app producing logs ASAP so they can train the ML model on healthy logs and test ingestion.
-- **Person 2** needs the repo-init volume working so the agent can read the dummy app's source code.
-- **Person 3** needs the GCP IP address and WebSocket port for the Vercel environment variable.
-- You need everyone's Dockerfiles to build the compose stack.
-
-Get the dummy app producing logs first - that unblocks Person 1 immediately.
+- **Person 1** needs the dummy app producing logs ASAP so they can test ingestion and train the ML model. Get the dummy app working first.
+- **Person 2** needs `repo-data` volume populated so the agent can read source code.
+- **Person 3** needs the GCP external IP for the Vercel WebSocket URL.
+- You need everyone's code to build the Docker images. Set up the repo structure early so people push to the right directories.
 
 ---
 
 ## Priority order
 
-1. Scaffold the dummy app with logger, products endpoint, and health check (45 min)
-2. Add chaos endpoints (db-leak first, it is the best demo) (30 min)
-3. Get the log forwarder working (30 min)
-4. Set up Discord webhook and send a test message (30 min)
-5. Write docker-compose.yml and get the stack running locally (1.5 hours)
-6. Deploy to GCP Compute Engine (1 hour)
-7. Write and test the traffic generator (30 min)
-8. Write the demo script and rehearse (30 min)
-9. Record backup demo video (remaining time)
+1. Scaffold dummy app: logger, products, health endpoints (45 min)
+2. Add chaos endpoints — db-leak first, it's the best demo (30 min)
+3. Log forwarder script (30 min)
+4. Docker Compose skeleton with pipeline + dummy-app (1 hour)
+5. Deploy to GCP, get the stack running (1 hour)
+6. Discord webhook integration (45 min)
+7. Traffic generator (30 min)
+8. GitHub repo sync webhook (30 min)
+9. Demo script + rehearsal (30 min)
+10. Record backup demo video (remaining time)

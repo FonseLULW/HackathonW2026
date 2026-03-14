@@ -8,6 +8,8 @@
 
 You own the visual layer. You build the Next.js dashboard on Vercel that displays the live pipeline in real-time and shows incident reports. This is also the primary demo surface for judges — if the dashboard looks good and clearly shows the intelligence pipeline working, the demo lands.
 
+You are fully independent — build everything with mock data first, switch to the real WebSocket when the backend is live.
+
 ---
 
 ## Deliverables
@@ -16,34 +18,35 @@ You own the visual layer. You build the Next.js dashboard on Vercel that display
 2. **Incident feed** — list of AI-generated incident reports
 3. **Incident detail view** — full report with agent reasoning chain and code references
 4. **Pipeline stats bar** — processing counts, tier distribution, cost savings
-5. **WebSocket client** — connects to the pipeline backend for real-time data
+5. **Agent activity feed** — real-time tool calls as the AI investigates
+6. **WebSocket client** — connects to the FastAPI backend
 
 ---
 
 ## Tech stack
 
 - **Next.js 14+** (App Router) on Vercel
-- **WebSocket** (or Server-Sent Events) for real-time data from the GCP backend
+- **WebSocket** for real-time data from the FastAPI backend on GCP
 - **Tailwind CSS** for styling
-- **shadcn/ui** components if you want pre-built UI elements
-- No additional charting library needed — keep it simple with CSS-based indicators
+- **shadcn/ui** components (optional, if it speeds things up)
+- No charting library needed — keep it clean with CSS indicators
 
 ---
 
 ## 1. WebSocket client
 
-The pipeline backend (FastAPI on GCP) will expose a WebSocket endpoint that emits events as logs flow through the system.
+The FastAPI backend exposes a WebSocket at `ws://<GCP_IP>:3001/ws` that pushes all pipeline events.
 
 ### Events you'll receive
 
 ```typescript
-// Every log that enters the system (including filtered)
+// Every log entering the system (including filtered)
 type LogScoredEvent = {
   type: 'log:scored';
-  data: LogEvent; // Full shared schema
+  data: LogEvent;
 };
 
-// When the cheap model makes a triage decision
+// When cheap model makes a triage decision
 type LogTriagedEvent = {
   type: 'log:triaged';
   data: LogEvent & { triage: { escalate: boolean; reason: string; urgency: string } };
@@ -56,50 +59,67 @@ type AgentToolCallEvent = {
     logId: string;
     tool: string;       // 'read_file' | 'grep_code' | 'git_blame' | etc.
     args: object;
-    result: string;     // Truncated result
+    result: string;     // Truncated
   };
 };
 
 // Final incident report
 type IncidentCreatedEvent = {
   type: 'incident:created';
-  data: LogEvent; // With incident field populated
+  data: LogEvent;       // With incident field populated
 };
 ```
 
-### Connection setup
+### Connection hook
 
 ```typescript
-// hooks/useWebSocket.ts
+// hooks/usePipelineSocket.ts
 import { useEffect, useRef, useState, useCallback } from 'react';
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001/ws';
 
+interface Stats {
+  total: number;
+  filtered: number;
+  low: number;
+  medium: number;
+  high: number;
+  incidents: number;
+}
+
 export function usePipelineSocket() {
-  const [logs, setLogs] = useState<LogEvent[]>([]);
-  const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [agentActivity, setAgentActivity] = useState<AgentToolCall[]>([]);
-  const [stats, setStats] = useState({
+  const [logs, setLogs] = useState<any[]>([]);
+  const [incidents, setIncidents] = useState<any[]>([]);
+  const [agentActivity, setAgentActivity] = useState<any[]>([]);
+  const [stats, setStats] = useState<Stats>({
     total: 0, filtered: 0, low: 0, medium: 0, high: 0, incidents: 0
   });
+  const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectRef = useRef<NodeJS.Timeout>();
 
-  useEffect(() => {
+  const connect = useCallback(() => {
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
+
+    ws.onopen = () => setConnected(true);
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
 
       switch (msg.type) {
         case 'log:scored':
-          setLogs(prev => [msg.data, ...prev].slice(0, 200)); // Keep last 200
+          setLogs(prev => [msg.data, ...prev].slice(0, 200));
           setStats(prev => ({
             ...prev,
             total: prev.total + 1,
-            filtered: prev.filtered + (msg.data.pipeline.filtered ? 1 : 0),
-            [msg.data.pipeline.tier]: prev[msg.data.pipeline.tier] + 1
+            filtered: prev.filtered + (msg.data.pipeline?.filtered ? 1 : 0),
+            [msg.data.pipeline?.tier || 'low']: (prev[msg.data.pipeline?.tier || 'low'] || 0) + 1,
           }));
+          break;
+
+        case 'log:triaged':
+          // Update the log entry if visible
           break;
 
         case 'agent:tool_call':
@@ -114,36 +134,44 @@ export function usePipelineSocket() {
     };
 
     ws.onclose = () => {
-      // Reconnect after 3 seconds
-      setTimeout(() => { /* re-init */ }, 3000);
+      setConnected(false);
+      reconnectRef.current = setTimeout(connect, 3000);
     };
 
-    return () => ws.close();
+    ws.onerror = () => ws.close();
   }, []);
 
-  return { logs, incidents, agentActivity, stats };
+  useEffect(() => {
+    connect();
+    return () => {
+      wsRef.current?.close();
+      clearTimeout(reconnectRef.current);
+    };
+  }, [connect]);
+
+  return { logs, incidents, agentActivity, stats, connected };
 }
 ```
 
 ### Fallback: polling
 
-If WebSocket setup is taking too long, fall back to polling a REST endpoint every 2 seconds:
+If WebSocket is being difficult, poll a REST endpoint every 2 seconds:
 
 ```
 GET /api/pipeline/recent?since={timestamp}
 ```
 
-Get the real-time view working first, optimize later.
+Get real-time working first, optimize later.
 
 ---
 
 ## 2. Page layout
 
-Single-page dashboard with three main sections. No routing needed — keep it simple.
+Single-page dashboard. No routing — keep it simple.
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  InteliLog            [stats bar: counts + tiers]   │
+│  InteliLog     ● Connected   [stats bar]            │
 ├──────────────────────┬──────────────────────────────┤
 │                      │                              │
 │   Live log stream    │   Incident feed              │
@@ -167,53 +195,52 @@ Single-page dashboard with three main sections. No routing needed — keep it si
 
 ## 3. Live log stream
 
-A scrolling list of logs as they flow through the pipeline. Each row shows:
-
-- Timestamp
-- Log level (color-coded: info=gray, warn=amber, error=red, fatal=red-bold)
-- Anomaly score (0.0-1.0 as a small colored bar: green < 0.3, amber 0.3-0.7, red > 0.7)
-- Tier assignment (badge: "dropped", "low", "medium", "high")
-- Truncated message
+Scrolling list of logs with color-coded severity and anomaly scores.
 
 ```tsx
-function LogRow({ log }: { log: LogEvent }) {
-  const scoreColor = log.pipeline.anomaly_score < 0.3
-    ? 'bg-green-500'
-    : log.pipeline.anomaly_score < 0.7
-    ? 'bg-amber-500'
-    : 'bg-red-500';
+// components/LogRow.tsx
+function LogRow({ log }: { log: any }) {
+  const score = log.pipeline?.anomaly_score || 0;
+  const scoreColor = score < 0.3 ? 'bg-green-500' : score < 0.7 ? 'bg-amber-500' : 'bg-red-500';
 
-  const tierBadge = {
+  const tierStyles: Record<string, string> = {
     low: 'bg-gray-100 text-gray-600',
     medium: 'bg-amber-100 text-amber-700',
-    high: 'bg-red-100 text-red-700'
+    high: 'bg-red-100 text-red-700',
+  };
+
+  const levelColors: Record<string, string> = {
+    info: 'text-gray-500',
+    warn: 'text-amber-600',
+    warning: 'text-amber-600',
+    error: 'text-red-600',
+    fatal: 'text-red-700 font-bold',
   };
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 font-mono text-sm">
+    <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 font-mono text-sm hover:bg-gray-50 transition-colors">
       <span className="text-gray-400 text-xs w-20 shrink-0">
         {new Date(log.timestamp).toLocaleTimeString()}
       </span>
 
-      <span className={`uppercase text-xs font-medium w-12 ${levelColor(log.level)}`}>
+      <span className={`uppercase text-xs font-medium w-14 ${levelColors[log.level] || 'text-gray-500'}`}>
         {log.level}
       </span>
 
       {/* Anomaly score bar */}
       <div className="w-16 h-2 bg-gray-100 rounded-full overflow-hidden shrink-0">
-        <div
-          className={`h-full rounded-full ${scoreColor}`}
-          style={{ width: `${(log.pipeline.anomaly_score || 0) * 100}%` }}
+        <div className={`h-full rounded-full transition-all ${scoreColor}`}
+          style={{ width: `${score * 100}%` }}
         />
       </div>
 
-      <span className={`text-xs px-2 py-0.5 rounded ${tierBadge[log.pipeline.tier] || 'bg-gray-50'}`}>
-        {log.pipeline.filtered ? 'filtered' : log.pipeline.tier}
+      <span className={`text-xs px-2 py-0.5 rounded shrink-0 ${
+        log.pipeline?.filtered ? 'bg-gray-50 text-gray-400' : tierStyles[log.pipeline?.tier] || 'bg-gray-50'
+      }`}>
+        {log.pipeline?.filtered ? 'filtered' : log.pipeline?.tier || '—'}
       </span>
 
-      <span className="text-gray-700 truncate">
-        {log.message}
-      </span>
+      <span className="text-gray-700 truncate">{log.message}</span>
     </div>
   );
 }
@@ -221,31 +248,70 @@ function LogRow({ log }: { log: LogEvent }) {
 
 ### Auto-scroll behavior
 
-The list should auto-scroll to show new logs, but pause auto-scroll if the user scrolls up to inspect older logs. Resume auto-scroll when they scroll back to the bottom.
-
----
-
-## 4. Incident feed
-
-Cards showing each incident report, most recent first.
+Auto-scroll to show new logs. Pause if the user scrolls up to inspect older logs. Resume when they scroll back to the bottom.
 
 ```tsx
-function IncidentCard({ incident, onClick }: { incident: LogEvent; onClick: () => void }) {
-  const severityColor = {
-    critical: 'border-l-red-600 bg-red-50',
-    high: 'border-l-red-400 bg-red-50',
-    medium: 'border-l-amber-400 bg-amber-50',
-    low: 'border-l-green-400 bg-green-50',
+// components/LogStream.tsx
+function LogStream({ logs }: { logs: any[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  useEffect(() => {
+    if (autoScroll && containerRef.current) {
+      containerRef.current.scrollTop = 0; // Newest at top
+    }
+  }, [logs, autoScroll]);
+
+  const handleScroll = () => {
+    if (!containerRef.current) return;
+    const { scrollTop } = containerRef.current;
+    setAutoScroll(scrollTop < 50); // Near top = auto-scroll on
   };
 
   return (
-    <div
-      className={`border-l-4 rounded-lg p-4 cursor-pointer hover:shadow-md transition ${severityColor[incident.incident.severity]}`}
-      onClick={onClick}
-    >
+    <div ref={containerRef} onScroll={handleScroll}
+      className="h-full overflow-y-auto">
+      {logs.map(log => <LogRow key={log.id} log={log} />)}
+      {logs.length === 0 && (
+        <div className="text-center text-gray-400 py-12">
+          Waiting for logs...
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+## 4. Incident feed + detail
+
+### Incident card
+
+```tsx
+// components/IncidentCard.tsx
+function IncidentCard({ incident, isSelected, onClick }: {
+  incident: any; isSelected: boolean; onClick: () => void;
+}) {
+  const severityStyles: Record<string, string> = {
+    critical: 'border-l-red-600 bg-red-50',
+    high: 'border-l-orange-500 bg-orange-50',
+    medium: 'border-l-amber-400 bg-amber-50',
+    low: 'border-l-green-400 bg-green-50',
+    unknown: 'border-l-gray-400 bg-gray-50',
+  };
+
+  const severity = incident.incident?.severity || 'unknown';
+
+  return (
+    <div onClick={onClick}
+      className={`border-l-4 rounded-lg p-4 cursor-pointer transition
+        ${severityStyles[severity]}
+        ${isSelected ? 'ring-2 ring-blue-300' : 'hover:shadow-md'}`}>
+
       <div className="flex justify-between items-start mb-2">
         <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
-          {incident.incident.severity}
+          {severity}
         </span>
         <span className="text-xs text-gray-400">
           {new Date(incident.timestamp).toLocaleTimeString()}
@@ -253,10 +319,10 @@ function IncidentCard({ incident, onClick }: { incident: LogEvent; onClick: () =
       </div>
 
       <p className="text-sm font-medium text-gray-900 mb-1">
-        {incident.incident.report}
+        {incident.incident?.report || 'Investigating...'}
       </p>
 
-      {incident.incident.code_refs?.length > 0 && (
+      {incident.incident?.code_refs?.length > 0 && (
         <p className="text-xs text-gray-500 font-mono">
           {incident.incident.code_refs[0].file}:{incident.incident.code_refs[0].line}
         </p>
@@ -266,57 +332,128 @@ function IncidentCard({ incident, onClick }: { incident: LogEvent; onClick: () =
 }
 ```
 
----
+### Incident detail
 
-## 5. Incident detail view
-
-When an incident card is clicked, expand to show the full report.
-
-### Sections to display
-
-**Summary** — the `report` field, prominently displayed.
-
-**Root cause** — the `root_cause` field with a subtle background.
-
-**Code references** — each code ref shown as a clickable block:
-```
-src/db/pool.ts:42
-Last changed by sepehr on 2026-03-13 (commit a1b2c3d)
-```
-
-**Suggested fix** — the `suggested_fix` field in a callout/banner.
-
-**Agent reasoning chain** — show the tool calls the agent made during investigation, in order:
-```
-1. grep_code("ECONNREFUSED") → Found 3 matches
-2. read_file("src/db/pool.ts", lines 35-50) → Read pool configuration
-3. git_blame("src/db/pool.ts", lines 40-45) → Recent change by sepehr
-4. search_logs("connection pool") → 47 related errors in last 5 min
-```
-
-This reasoning chain is crucial for the demo — it shows judges that the AI isn't a black box.
-
----
-
-## 6. Pipeline stats bar
-
-A horizontal bar at the top showing real-time counts:
+When clicked, expand to show the full report.
 
 ```tsx
-function StatsBar({ stats }) {
+// components/IncidentDetail.tsx
+function IncidentDetail({ incident, agentActivity }: { incident: any; agentActivity: any[] }) {
+  const report = incident.incident;
+  if (!report) return null;
+
+  // Filter agent activity for this incident
+  const relatedActivity = agentActivity.filter(a => a.logId === incident.id);
+
+  return (
+    <div className="space-y-4 p-4">
+      {/* Summary */}
+      <div className="bg-white rounded-lg p-4 border">
+        <h3 className="text-sm font-medium text-gray-500 mb-1">Summary</h3>
+        <p className="text-gray-900">{report.report}</p>
+      </div>
+
+      {/* Root cause */}
+      {report.root_cause && (
+        <div className="bg-red-50 rounded-lg p-4 border border-red-100">
+          <h3 className="text-sm font-medium text-red-700 mb-1">Root cause</h3>
+          <p className="text-red-900 text-sm">{report.root_cause}</p>
+        </div>
+      )}
+
+      {/* Code references */}
+      {report.code_refs?.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-500 mb-2">Code references</h3>
+          <div className="space-y-2">
+            {report.code_refs.map((ref: any, i: number) => (
+              <div key={i} className="bg-gray-900 text-gray-100 rounded-lg p-3 font-mono text-sm">
+                <div className="text-blue-400">{ref.file}:{ref.line}</div>
+                {ref.blame_author && (
+                  <div className="text-gray-500 text-xs mt-1">
+                    Last changed by {ref.blame_author} on {ref.blame_date} ({ref.blame_commit})
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Suggested fix */}
+      {report.suggested_fix && (
+        <div className="bg-green-50 rounded-lg p-4 border border-green-100">
+          <h3 className="text-sm font-medium text-green-700 mb-1">Suggested fix</h3>
+          <p className="text-green-900 text-sm">{report.suggested_fix}</p>
+        </div>
+      )}
+
+      {/* Agent reasoning chain */}
+      {relatedActivity.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-500 mb-2">Agent investigation</h3>
+          <div className="bg-gray-900 text-green-400 font-mono text-xs p-3 rounded-lg space-y-1">
+            {relatedActivity.map((call, i) => (
+              <div key={i}>
+                <span className="text-gray-500">{i + 1}.</span>{' '}
+                <span className="text-blue-400">{call.tool}</span>
+                <span className="text-gray-400">({formatArgs(call.args)})</span>{' '}
+                <span className="text-gray-600">→ {call.result.substring(0, 80)}...</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatArgs(args: any): string {
+  return Object.entries(args)
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(', ');
+}
+```
+
+---
+
+## 5. Stats bar
+
+```tsx
+// components/StatsBar.tsx
+function StatsBar({ stats, connected }: { stats: Stats; connected: boolean }) {
   return (
     <div className="flex items-center gap-6 px-6 py-3 bg-gray-50 border-b text-sm">
-      <Stat label="Total logs" value={stats.total} />
+      <div className="flex items-center gap-2">
+        <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+        <span className="text-xs text-gray-500">{connected ? 'Connected' : 'Disconnected'}</span>
+      </div>
+
+      <Stat label="Total" value={stats.total} />
       <Stat label="Filtered" value={stats.filtered} color="gray" />
       <Stat label="Low" value={stats.low} color="green" />
       <Stat label="Medium" value={stats.medium} color="amber" />
       <Stat label="High" value={stats.high} color="red" />
       <Stat label="Incidents" value={stats.incidents} color="red" />
 
-      {/* Cost savings estimate */}
       <div className="ml-auto text-xs text-gray-500">
-        Est. saved: ${((stats.filtered + stats.low) * 0.001).toFixed(2)} by not sending to LLM
+        Saved ~${((stats.filtered + stats.low) * 0.001).toFixed(2)} by not calling LLM
       </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, color = 'gray' }: { label: string; value: number; color?: string }) {
+  const colors: Record<string, string> = {
+    gray: 'text-gray-700',
+    green: 'text-green-700',
+    amber: 'text-amber-700',
+    red: 'text-red-700',
+  };
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-gray-500">{label}:</span>
+      <span className={`font-medium ${colors[color]}`}>{value}</span>
     </div>
   );
 }
@@ -324,19 +461,29 @@ function StatsBar({ stats }) {
 
 ---
 
-## 7. Agent activity feed
+## 6. Agent activity feed
 
-A smaller feed at the bottom showing real-time agent tool calls as they happen. This creates a "watching the AI think" experience that's compelling in a demo.
+Terminal-style feed showing real-time tool calls.
 
 ```tsx
-function AgentActivityFeed({ activity }) {
+// components/AgentActivity.tsx
+function AgentActivity({ activity }: { activity: any[] }) {
+  if (activity.length === 0) {
+    return (
+      <div className="bg-gray-900 rounded-lg p-4 text-gray-600 font-mono text-xs text-center">
+        Agent idle — waiting for high-anomaly events...
+      </div>
+    );
+  }
+
   return (
     <div className="bg-gray-900 text-green-400 font-mono text-xs p-4 rounded-lg max-h-40 overflow-y-auto">
       {activity.map((call, i) => (
-        <div key={i} className="mb-1">
-          <span className="text-gray-500">[{call.tool}]</span>{' '}
+        <div key={i} className="mb-1 leading-relaxed">
+          <span className="text-gray-600">[{new Date().toLocaleTimeString()}]</span>{' '}
+          <span className="text-blue-400">{call.tool}</span>{' '}
           <span className="text-green-300">{formatArgs(call.args)}</span>{' '}
-          <span className="text-gray-600">→ {call.result.substring(0, 80)}...</span>
+          <span className="text-gray-600">→ {call.result.substring(0, 100)}</span>
         </div>
       ))}
     </div>
@@ -346,66 +493,122 @@ function AgentActivityFeed({ activity }) {
 
 ---
 
-## Development approach
+## 7. Mock data for development
 
-### Start with mock data
-
-Don't wait for the backend WebSocket. Build the entire UI with mock data first.
+Build the entire UI with this before the backend exists.
 
 ```typescript
 // lib/mockData.ts
-export function generateMockLog(): LogEvent {
-  const levels = ['info', 'info', 'info', 'warn', 'error'];
-  const level = levels[Math.floor(Math.random() * levels.length)];
-  const score = level === 'error' ? 0.5 + Math.random() * 0.5 : Math.random() * 0.4;
+const messages = {
+  info: [
+    'GET /api/products 200 12ms',
+    'POST /api/orders 201 45ms',
+    'User login successful user_id=u123',
+    'Cache hit for product_list ttl=300s',
+  ],
+  warn: [
+    'Connection pool at 85% capacity',
+    'Slow query detected: SELECT * FROM orders took 2340ms',
+    'Rate limit approaching for api_key=ak_123',
+  ],
+  error: [
+    'ECONNREFUSED - Connection refused to postgres:5432',
+    'FATAL: too many connections for role "postgres"',
+    'Unhandled exception in /api/orders: TypeError cannot read property id of undefined',
+    'JWT verification failed: token signature invalid',
+  ],
+};
+
+export function generateMockLog() {
+  const rand = Math.random();
+  const level = rand < 0.6 ? 'info' : rand < 0.85 ? 'warn' : 'error';
+  const msgs = messages[level];
+  const message = msgs[Math.floor(Math.random() * msgs.length)];
+  const score = level === 'error' ? 0.5 + Math.random() * 0.5
+    : level === 'warn' ? 0.2 + Math.random() * 0.4
+    : Math.random() * 0.25;
 
   return {
     id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
-    level,
-    message: generateRandomLogMessage(level),
     source: 'dummy-ecommerce-api',
+    level,
+    message,
     pipeline: {
-      anomaly_score: score,
+      anomaly_score: Math.round(score * 100) / 100,
       tier: score < 0.3 ? 'low' : score < 0.7 ? 'medium' : 'high',
-      filtered: false
-    }
+      filtered: level === 'info' && Math.random() < 0.3,
+      filter_reason: null,
+    },
   };
 }
 
-// Simulate logs arriving every 500ms
-export function startMockStream(callback: (log: LogEvent) => void) {
-  return setInterval(() => callback(generateMockLog()), 500);
+export function generateMockIncident() {
+  return {
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    source: 'dummy-ecommerce-api',
+    level: 'error',
+    message: 'FATAL: too many connections for role "postgres"',
+    pipeline: { anomaly_score: 0.92, tier: 'high' },
+    incident: {
+      report: 'Connection pool exhaustion detected in order-service. Error rate spiked from 0% to 47% over 2 minutes.',
+      root_cause: 'Database connection pool max size was reduced from 20 to 5 in a recent config change, causing exhaustion under normal load.',
+      severity: 'high',
+      code_refs: [{
+        file: 'src/db/pool.ts',
+        line: 42,
+        blame_author: 'sepehr',
+        blame_date: '2026-03-13',
+        blame_commit: 'a1b2c3d',
+      }],
+      suggested_fix: 'Revert pool size change in src/db/pool.ts:42 or increase max connections to handle current load.',
+    },
+  };
+}
+
+// Simulate a stream for development
+export function startMockStream(
+  onLog: (log: any) => void,
+  onIncident?: (incident: any) => void,
+) {
+  const logInterval = setInterval(() => onLog(generateMockLog()), 500);
+
+  // Occasional incident every 30 seconds
+  const incidentInterval = onIncident
+    ? setInterval(() => onIncident(generateMockIncident()), 30000)
+    : null;
+
+  return () => {
+    clearInterval(logInterval);
+    if (incidentInterval) clearInterval(incidentInterval);
+  };
 }
 ```
-
-### Switch to real WebSocket when backend is ready
-
-The `usePipelineSocket` hook is already structured to accept real data. Just update `WS_URL` to point at the GCP backend.
 
 ---
 
 ## File structure
 
 ```
-/dashboard
-  /app
+dashboard/
+  app/
     page.tsx              # Main dashboard page
-    layout.tsx            # Root layout with fonts/metadata
-    globals.css           # Tailwind imports
-  /components
-    StatsBar.tsx          # Pipeline statistics
-    LogStream.tsx         # Live log feed
-    LogRow.tsx            # Individual log row
-    IncidentFeed.tsx      # Incident card list
-    IncidentCard.tsx      # Summary card
-    IncidentDetail.tsx    # Expanded report view
-    AgentActivity.tsx     # Real-time agent tool calls
-  /hooks
-    usePipelineSocket.ts  # WebSocket connection + state
-  /lib
-    types.ts              # TypeScript types matching shared schema
-    mockData.ts           # Mock data generators for development
+    layout.tsx            # Root layout
+    globals.css           # Tailwind
+  components/
+    StatsBar.tsx
+    LogStream.tsx
+    LogRow.tsx
+    IncidentFeed.tsx
+    IncidentCard.tsx
+    IncidentDetail.tsx
+    AgentActivity.tsx
+  hooks/
+    usePipelineSocket.ts
+  lib/
+    types.ts              # TypeScript types
+    mockData.ts           # Mock generators
   next.config.js
   tailwind.config.ts
   package.json
@@ -415,30 +618,30 @@ The `usePipelineSocket` hook is already structured to accept real data. Just upd
 
 ## Styling guidelines
 
-- **Dark header** with InteliLog branding, light body
-- **Monospace font** for log messages and agent activity (JetBrains Mono or similar)
-- **Color-coded severity** consistently across all components
-- **Minimal animations** — a subtle fade-in for new logs is fine, nothing flashy
-- Keep it clean and professional. Judges are technical; they'll appreciate clarity over decoration.
+- Dark header with "InteliLog" branding, light body
+- **JetBrains Mono** or system monospace for log messages and agent activity
+- Color-coded severity used consistently everywhere (green/amber/red)
+- Minimal animations — subtle fade-in for new logs
+- Clean, professional, information-dense. Judges are technical.
 
 ---
 
-## Coordination with other tracks
+## Coordination
 
-- **Person 1 & 2** provide the event stream. Agree on the WebSocket endpoint URL and event format early.
-- **Person 4** will deploy the backend — coordinate on the WebSocket URL for the Vercel deployment's environment variable.
-- You can develop fully independently using mock data until the backend is ready.
+- **Person 1 + 2** provide the event stream via WebSocket. You need the GCP IP from Person 4.
+- Set the Vercel environment variable: `NEXT_PUBLIC_WS_URL=ws://<GCP_IP>:3001/ws`
+- You can develop 100% independently using mock data until the backend goes live.
 
 ---
 
 ## Priority order
 
-1. Scaffold Next.js project, deploy to Vercel, get a blank page live (30 min)
-2. Build the LogStream component with mock data (1 hour)
-3. Build the StatsBar (30 min)
-4. Build the IncidentFeed and IncidentCard (1 hour)
-5. Build the IncidentDetail view (1 hour)
-6. Build the AgentActivity feed (30 min)
-7. Implement the WebSocket hook with real backend connection (1 hour)
-8. Polish layout, responsive behavior, demo readiness (remaining time)
-
+1. Scaffold Next.js, deploy blank page to Vercel (30 min)
+2. Mock data generators — start using them immediately (30 min)
+3. LogStream + LogRow components (1 hour)
+4. StatsBar (30 min)
+5. IncidentFeed + IncidentCard (1 hour)
+6. IncidentDetail with reasoning chain (1 hour)
+7. AgentActivity feed (30 min)
+8. WebSocket hook — connect to real backend (45 min)
+9. Polish: layout, connection status indicator, empty states (remaining time)
