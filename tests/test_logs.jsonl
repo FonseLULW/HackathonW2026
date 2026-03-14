@@ -1,0 +1,30 @@
+{"timestamp": "2026-03-14T10:00:01.000Z", "level": "info", "service": "dummy-app", "message": "Dummy app listening on port 3000"}
+{"timestamp": "2026-03-14T10:00:02.000Z", "level": "info", "service": "dummy-app", "message": "Health check", "metadata": {"endpoint": "/api/health"}}
+{"timestamp": "2026-03-14T10:00:03.000Z", "level": "info", "service": "dummy-app", "message": "Products listed", "metadata": {"endpoint": "/api/products"}}
+{"timestamp": "2026-03-14T10:00:04.000Z", "level": "info", "service": "dummy-app", "message": "User logged in", "metadata": {"user_id": "u_123", "ip": "192.168.1.50"}}
+{"timestamp": "2026-03-14T10:00:05.000Z", "level": "info", "service": "dummy-app", "message": "Order placed", "metadata": {"order_id": "ord_456", "total": 59.99}}
+{"timestamp": "2026-03-14T10:00:06.000Z", "level": "debug", "service": "dummy-app", "message": "Cache miss for key product:42"}
+{"timestamp": "2026-03-14T10:00:07.000Z", "level": "debug", "service": "dummy-app", "message": "SQL query executed in 12ms", "metadata": {"query": "SELECT * FROM products"}}
+{"timestamp": "2026-03-14T10:00:08.000Z", "level": "info", "service": "dummy-app", "message": "GET /health 200 1ms"}
+{"timestamp": "2026-03-14T10:00:09.000Z", "level": "info", "service": "dummy-app", "message": "readiness probe succeeded"}
+{"timestamp": "2026-03-14T10:00:10.000Z", "level": "info", "service": "dummy-app", "message": "liveness check passed"}
+{"timestamp": "2026-03-14T10:00:11.000Z", "level": "info", "service": "dummy-app", "message": "GET /static/style.css 200 2ms"}
+{"timestamp": "2026-03-14T10:00:12.000Z", "level": "info", "service": "dummy-app", "message": "GET /assets/logo.png 200 5ms"}
+{"timestamp": "2026-03-14T10:00:13.000Z", "level": "info", "service": "dummy-app", "message": "GET /bundle.js 200 15ms"}
+{"timestamp": "2026-03-14T10:00:14.000Z", "level": "info", "service": "kube-probe", "message": "kube-probe/1.28 health check"}
+{"timestamp": "2026-03-14T10:00:15.000Z", "level": "info", "service": "dummy-app", "message": "GoogleHC/1.0 readiness check"}
+{"timestamp": "2026-03-14T10:00:16.000Z", "level": "warn", "service": "dummy-app", "message": "Slow query detected: 2340ms", "metadata": {"query": "SELECT * FROM orders JOIN products", "duration_ms": 2340}}
+{"timestamp": "2026-03-14T10:00:17.000Z", "level": "warn", "service": "dummy-app", "message": "Connection pool running low: 2/10 available"}
+{"timestamp": "2026-03-14T10:00:18.000Z", "level": "warn", "service": "dummy-app", "message": "Rate limit approaching for API key ak_***789", "metadata": {"usage": 950, "limit": 1000}}
+{"timestamp": "2026-03-14T10:00:19.000Z", "level": "warn", "service": "dummy-app", "message": "Deprecated endpoint called: POST /api/v1/users"}
+{"timestamp": "2026-03-14T10:00:20.000Z", "level": "error", "service": "dummy-app", "message": "ECONNREFUSED 127.0.0.1:5432 - Connection refused", "metadata": {"host": "127.0.0.1", "port": 5432}}
+{"timestamp": "2026-03-14T10:00:21.000Z", "level": "error", "service": "dummy-app", "message": "FATAL: too many connections for role \"postgres\"", "metadata": {"max_connections": 100, "current": 100}}
+{"timestamp": "2026-03-14T10:00:22.000Z", "level": "error", "service": "dummy-app", "message": "TypeError: Cannot read properties of undefined (reading 'id')\n    at getUser (/app/src/routes/users.js:45:22)\n    at Layer.handle (/app/node_modules/express/lib/router/layer.js:95:5)\n    at next (/app/node_modules/express/lib/router/route.js:144:13)\n    at Route.dispatch (/app/node_modules/express/lib/router/route.js:114:3)"}
+{"timestamp": "2026-03-14T10:00:23.000Z", "level": "error", "service": "dummy-app", "message": "Unhandled promise rejection: PaymentProcessingError: Stripe webhook signature verification failed"}
+{"timestamp": "2026-03-14T10:00:24.000Z", "level": "error", "service": "dummy-app", "message": "ENOMEM: not enough memory, cannot allocate 134217728 bytes"}
+{"timestamp": "2026-03-14T10:00:25.000Z", "level": "fatal", "service": "dummy-app", "message": "Process out of memory - heap limit reached, forcing shutdown", "metadata": {"heap_used_mb": 1024, "heap_limit_mb": 1024}}
+{"timestamp": "2026-03-14T10:00:26.000Z", "level": "fatal", "service": "dummy-app", "message": "Uncaught exception: database connection lost, cannot recover\nError: Connection terminated unexpectedly\n    at Connection.<anonymous> (/app/node_modules/pg/lib/client.js:132:73)\n    at emit (node:events:513:28)\n    at Socket.<anonymous> (/app/node_modules/pg/lib/connection.js:117:12)"}
+{"timestamp": "2026-03-14T10:00:27.000Z", "level": "info", "service": "dummy-app", "message": "Payment processed successfully", "metadata": {"order_id": "ord_789", "amount": 129.99, "currency": "CAD"}}
+{"timestamp": "2026-03-14T10:00:28.000Z", "level": "info", "service": "dummy-app", "message": "Email sent: order confirmation", "metadata": {"to": "user@example.com", "template": "order_confirm"}}
+{"timestamp": "2026-03-14T10:00:29.000Z", "level": "info", "service": "dummy-app", "message": "Inventory updated for product_42: 150 -> 149"}
+{"timestamp": "2026-03-14T10:00:30.000Z", "level": "warn", "service": "dummy-app", "message": "Disk usage at 89% on /data volume", "metadata": {"used_gb": 89, "total_gb": 100}}

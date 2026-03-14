@@ -1,0 +1,11 @@
+2026-03-14T10:01:00.000Z INFO [dummy-app] Server started on port 3000
+2026-03-14T10:01:01.000Z INFO [dummy-app] Health check
+2026-03-14T10:01:02.000Z DEBUG [dummy-app] Loading config from /etc/app/config.yml
+2026-03-14T10:01:03.000Z WARN [dummy-app] Slow query: SELECT * FROM orders took 3200ms
+2026-03-14T10:01:04.000Z ERROR [dummy-app] ECONNREFUSED 10.0.0.5:6379 - Redis connection failed
+2026-03-14T10:01:05.000Z FATAL [dummy-app] Out of memory: heap allocation failed
+just a random line with no structure at all
+another unstructured log line: something went wrong
+2026-03-14T10:01:06.000Z INFO [kube-probe] kube-probe/1.28 readiness
+2026-03-14T10:01:07.000Z INFO [dummy-app] GET /static/app.css 200 3ms
+2026-03-14T10:01:08.000Z ERROR [dummy-app] Traceback (most recent call last):
