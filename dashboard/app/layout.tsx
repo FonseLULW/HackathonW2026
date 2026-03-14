@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { LogStream } from "./components/LogStream";
+import { IncidentFeed } from "./components/IncidentFeed";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -49,14 +50,7 @@ export default function RootLayout({
                   <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-600">
                     Incident Feed
                   </h2>
-                  <button className="w-full rounded border-l-4 border-red-500 bg-red-50 p-3 text-left text-sm transition hover:bg-red-100">
-                    <p className="font-semibold text-red-700">
-                      HIGH: Checkout failures across region us-west
-                    </p>
-                    <p className="mt-1 text-xs text-slate-600">
-                      First code ref: `services/payment/client.ts:88`
-                    </p>
-                  </button>
+                  <IncidentFeed />
                 </div>
 
                 <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">

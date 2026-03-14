@@ -132,6 +132,12 @@ export function createMockIncident(): MockIncident {
   };
 }
 
+export function createInitialMockIncidents(count = 2): MockIncident[] {
+  return Array.from({ length: count }, () => createMockIncident()).sort(
+    (a, b) => b.timestamp.localeCompare(a.timestamp),
+  );
+}
+
 export function startMockLogStream(
   onLog: (event: MockLogEvent) => void,
   intervalMs = 10000,
