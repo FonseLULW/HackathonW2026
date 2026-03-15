@@ -1,39 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  createInitialMockAgentCalls,
-  createInitialMockIncidents,
-  createInitialMockLogs,
-  startMockAgentCallStream,
-  startMockIncidentStream,
-  startMockLogStream,
-} from "@/lib/mockData";
-import { resolveWebSocketUrl } from "./ws";
-
-type StatsState = {
-  logsScored: number;
-  triagedBatches: number;
-  incidentsRaised: number;
-  toolCalls: number;
-  logsSuppressed: number;
-};
-
-type BusMessage = {
-  type?: string;
-  data?: unknown;
-};
-
-const INITIAL_STATS: StatsState = {
-  logsScored: 0,
-  triagedBatches: 0,
-  incidentsRaised: 0,
-  toolCalls: 0,
-  logsSuppressed: 0,
-};
+import { useLiveData } from "./live-data";
 
 const statConfig: Array<{
-  key: keyof StatsState;
+  key: "logsScored" | "triagedBatches" | "incidentsRaised" | "toolCalls" | "logsSuppressed";
   label: string;
   note: string;
 }> = [
@@ -45,91 +15,7 @@ const statConfig: Array<{
 ];
 
 export function LiveStats() {
-  const useMockData = process.env.NEXT_PUBLIC_USE_MOCK_DATA === "true";
-  const [stats, setStats] = useState<StatsState>(() => {
-    if (!useMockData) {
-      return INITIAL_STATS;
-    }
-
-    return {
-      logsScored: createInitialMockLogs(25).length,
-      triagedBatches: 0,
-      incidentsRaised: createInitialMockIncidents(2).length,
-      toolCalls: createInitialMockAgentCalls(5).length,
-      logsSuppressed: 0,
-    };
-  });
-
-  useEffect(() => {
-    if (useMockData) {
-      const stopLogs = startMockLogStream(() => {
-        setStats((prev) => ({ ...prev, logsScored: prev.logsScored + 1 }));
-      });
-      const stopIncidents = startMockIncidentStream(() => {
-        setStats((prev) => ({ ...prev, incidentsRaised: prev.incidentsRaised + 1 }));
-      });
-      const stopAgent = startMockAgentCallStream(() => {
-        setStats((prev) => ({ ...prev, toolCalls: prev.toolCalls + 1 }));
-      });
-
-      return () => {
-        stopLogs();
-        stopIncidents();
-        stopAgent();
-      };
-    }
-
-    let ws: WebSocket | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let stopped = false;
-
-    const connect = () => {
-      ws = new WebSocket(resolveWebSocketUrl());
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data) as BusMessage;
-          setStats((prev) => {
-            switch (msg.type) {
-              case "log:scored":
-                return { ...prev, logsScored: prev.logsScored + 1 };
-              case "log:triaged":
-                return { ...prev, triagedBatches: prev.triagedBatches + 1 };
-              case "incident:created":
-                return { ...prev, incidentsRaised: prev.incidentsRaised + 1 };
-              case "agent:tool_call":
-                return { ...prev, toolCalls: prev.toolCalls + 1 };
-              case "log:suppressed":
-                return { ...prev, logsSuppressed: prev.logsSuppressed + 1 };
-              default:
-                return prev;
-            }
-          });
-        } catch {
-          // Ignore malformed events and keep streaming.
-        }
-      };
-
-      ws.onclose = () => {
-        if (stopped) {
-          return;
-        }
-        retryTimer = setTimeout(connect, 1500);
-      };
-    };
-
-    connect();
-
-    return () => {
-      stopped = true;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-      }
-      if (ws && ws.readyState < WebSocket.CLOSING) {
-        ws.close();
-      }
-    };
-  }, [useMockData]);
+  const { stats } = useLiveData();
 
   return (
     <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">

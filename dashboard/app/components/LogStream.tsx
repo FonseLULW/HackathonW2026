@@ -1,86 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  createInitialMockLogs,
-  startMockIncidentStream,
-  startMockLogStream,
-} from "@/lib/mockData";
-import { LogEvent, LogRow } from "./LogRow";
-import { resolveWebSocketUrl } from "./ws";
-
-const MAX_LOGS_TO_DISPLAY = 200;
-
-type BusMessage = {
-  type?: string;
-  data?: LogEvent;
-};
+import { LogRow } from "./LogRow";
+import { useLiveData } from "./live-data";
 
 export function LogStream() {
-  const useMockData = process.env.NEXT_PUBLIC_USE_MOCK_DATA === "true";
-  const [logs, setLogs] = useState<LogEvent[]>(() =>
-    useMockData ? createInitialMockLogs(1).reverse() : [],
-  );
+  const { logs } = useLiveData();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [stickToBottom, setStickToBottom] = useState(true);
-
-  useEffect(() => {
-    if (useMockData) {
-      const stopLogs = startMockLogStream((event) => {
-        setLogs((prev) => [...prev, event].slice(-MAX_LOGS_TO_DISPLAY));
-      });
-
-      // Keep incident generator running for future incident feed wiring.
-      const stopIncidents = startMockIncidentStream(() => {});
-
-      return () => {
-        stopLogs();
-        stopIncidents();
-      };
-    }
-
-    let ws: WebSocket | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let stopped = false;
-
-    const connect = () => {
-      const wsUrl = resolveWebSocketUrl();
-      ws = new WebSocket(wsUrl);
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data) as BusMessage;
-          if (msg.type !== "log:scored" || !msg.data) {
-            return;
-          }
-          setLogs((prev) =>
-            [...prev, msg.data as LogEvent].slice(-MAX_LOGS_TO_DISPLAY),
-          );
-        } catch {
-          // Ignore malformed events so the stream stays alive.
-        }
-      };
-
-      ws.onclose = () => {
-        if (stopped) {
-          return;
-        }
-        retryTimer = setTimeout(connect, 1500);
-      };
-    };
-
-    connect();
-
-    return () => {
-      stopped = true;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-      }
-      if (ws && ws.readyState < WebSocket.CLOSING) {
-        ws.close();
-      }
-    };
-  }, [useMockData]);
 
   useEffect(() => {
     if (!stickToBottom || !scrollContainerRef.current) {

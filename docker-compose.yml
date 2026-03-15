@@ -19,6 +19,8 @@ services:
       dockerfile: pipeline/Dockerfile
     expose:
       - "3001"
+    ports:
+      - "3001:3001"
     volumes:
       - repo-data:/repo:ro
       - pipeline-data:/data
