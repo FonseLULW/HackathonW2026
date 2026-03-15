@@ -39,6 +39,21 @@ export function subscribeToIncidents(
   });
 }
 
+export function subscribeToAgentCalls(
+  callback: (calls: unknown[]) => void,
+  max = 60,
+): Unsubscribe {
+  const db = getDb();
+  const q = query(
+    collection(db, "snooplog-agent-calls"),
+    orderBy("timestamp", "desc"),
+    limit(max),
+  );
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => d.data()).reverse());
+  });
+}
+
 export function subscribeToStats(
   callback: (stats: Record<string, unknown> | null) => void,
 ): Unsubscribe {

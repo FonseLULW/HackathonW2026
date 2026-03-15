@@ -17,6 +17,7 @@ _stats_ref = None
 
 LOG_COLLECTION = "snooplog-logs"
 INCIDENT_COLLECTION = "snooplog-incidents"
+AGENT_CALLS_COLLECTION = "snooplog-agent-calls"
 STATS_COLLECTION = "snooplog-stats"
 
 
@@ -97,14 +98,28 @@ def _on_triaged(_data: dict[str, Any]) -> None:
         pass
 
 
-def _on_tool_call(_data: dict[str, Any]) -> None:
+def _on_tool_call(data: dict[str, Any]) -> None:
     try:
         from google.cloud import firestore
 
-        _get_db()
+        db = _get_db()
+        doc = {
+            "id": data.get("tool_call_id", ""),
+            "timestamp": data.get("timestamp", ""),
+            "tool": data.get("tool", ""),
+            "tool_name": data.get("tool", data.get("tool_name", "")),
+            "args": data.get("args", {}),
+            "result": data.get("result", ""),
+            "result_preview": data.get("result_preview", ""),
+            "summary": data.get("summary", ""),
+            "ok": data.get("ok", True),
+            "source": data.get("source", ""),
+            "related_log_ids": data.get("related_log_ids", []),
+        }
+        db.collection(AGENT_CALLS_COLLECTION).add(doc)
         _stats_ref.update({"tool_calls": firestore.Increment(1)})
     except Exception:
-        pass
+        logger.warning("Failed to write tool call to Firestore", exc_info=True)
 
 
 def _on_suppressed(_data: dict[str, Any]) -> None:

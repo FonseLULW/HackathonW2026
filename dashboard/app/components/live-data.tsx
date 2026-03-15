@@ -22,6 +22,7 @@ import { resolveWebSocketUrl } from "./ws";
 import {
   subscribeToLogs,
   subscribeToIncidents,
+  subscribeToAgentCalls,
   subscribeToStats,
 } from "@/lib/firestore-history";
 
@@ -428,6 +429,15 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
           );
       });
 
+      const unsubAgentCalls = subscribeToAgentCalls((data) => {
+        if (data.length) {
+          const normalized = data
+            .map(normalizeAgentCall)
+            .filter(Boolean) as AgentCallItem[];
+          setAgentCalls(normalized);
+        }
+      });
+
       const unsubStats = subscribeToStats((data) => {
         if (data)
           setStats({
@@ -442,6 +452,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
       return () => {
         unsubLogs();
         unsubIncidents();
+        unsubAgentCalls();
         unsubStats();
       };
     }
