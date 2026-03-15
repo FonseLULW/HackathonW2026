@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 
+const ARRIVAL_SESSION_KEY = "snooplog:user-arrival-sent";
+
 export default function Storefront({ initialSnapshot }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [message, setMessage] = useState({
@@ -18,6 +20,33 @@ export default function Storefront({ initialSnapshot }) {
   const [orderPanelFlash, setOrderPanelFlash] = useState("idle");
   const [activityPulse, setActivityPulse] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (window.sessionStorage.getItem(ARRIVAL_SESSION_KEY) === "1") {
+      return;
+    }
+
+    window.sessionStorage.setItem(ARRIVAL_SESSION_KEY, "1");
+
+    void fetch("/api/session/arrive", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+      keepalive: true,
+      body: JSON.stringify({
+        pathname: window.location.pathname,
+        referrer: document.referrer,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        },
+      }),
+    }).catch(() => {
+      window.sessionStorage.removeItem(ARRIVAL_SESSION_KEY);
+    });
+  }, []);
 
   useEffect(() => {
     if (orderPanelFlash === "idle") {
