@@ -53,25 +53,25 @@ function DashboardContent() {
       {/* ── Compact Header ── */}
       <div className="border-b border-black/6 bg-white">
         <div className="mx-auto flex max-w-[1520px] items-center justify-between gap-4 px-5 py-3.5 md:px-8">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             <Image
               src="/logo.svg"
               alt="SnoopLog logo"
-              width={56}
-              height={56}
+              width={84}
+              height={84}
               priority
-              className="h-14 w-14 shrink-0 object-contain"
+              className="h-[5.25rem] w-[5.25rem] shrink-0 object-contain"
             />
             <div>
               <h1
                 className={
-                  "text-2xl font-semibold tracking-[-0.03em] " +
+                  "text-[2.35rem] leading-none font-semibold tracking-[-0.03em] " +
                   myfont.className
                 }
               >
                 SnoopLog
               </h1>
-              <p className="hidden text-[11px] text-[var(--muted)] sm:block">
+              <p className="hidden pt-1 text-sm text-[var(--muted)] sm:block">
                 AI log monitoring &middot; anomaly triage &middot; incident
                 surfacing
               </p>
