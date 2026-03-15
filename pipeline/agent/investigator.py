@@ -173,7 +173,6 @@ class LlmIncidentInvestigator:
         model: str | None = None,
         fallback_models: list[str] | None = None,
         max_iterations: int = 10,
-        total_timeout_seconds: float | None = None,
     ) -> None:
         self._llm_client = llm_client
         self._tool_executor = tool_executor
@@ -195,9 +194,6 @@ class LlmIncidentInvestigator:
             candidate for candidate in configured_fallbacks if candidate != self._model
         ]
         self._max_iterations = max_iterations
-        self._total_timeout_seconds = total_timeout_seconds or float(
-            os.getenv("INVESTIGATION_TIMEOUT_SECONDS", "60")
-        )
 
     def set_pattern_memory(self, pattern_memory) -> None:
         self._pattern_memory = pattern_memory
@@ -228,42 +224,38 @@ class LlmIncidentInvestigator:
         models = [self._model, *self._fallback_models]
 
         try:
-            async with asyncio.timeout(self._total_timeout_seconds):
-                for index, model_name in enumerate(models):
-                    logger.info(
-                        "Using OpenRouter investigation model %s for %s log(s)",
-                        model_name,
-                        len(logs),
+            for index, model_name in enumerate(models):
+                logger.info(
+                    "Using OpenRouter investigation model %s for %s log(s)",
+                    model_name,
+                    len(logs),
+                )
+                try:
+                    incident = await self._run_investigation_loop(
+                        model_name=model_name,
+                        logs=logs,
+                        messages=messages,
+                        tools=tools,
+                        seen_tool_calls=seen_tool_calls,
                     )
-                    try:
-                        incident = await self._run_investigation_loop(
-                            model_name=model_name,
-                            logs=logs,
-                            messages=messages,
-                            tools=tools,
-                            seen_tool_calls=seen_tool_calls,
+                    return await self._emit_incident(logs, incident, reason, urgency)
+                except OpenRouterError as exc:
+                    if index < len(models) - 1 and _should_retry_with_fallback_model(exc):
+                        next_model = models[index + 1]
+                        logger.warning(
+                            "OpenRouter investigation model %s failed with %s; retrying with %s",
+                            model_name,
+                            exc,
+                            next_model,
                         )
-                        return await self._emit_incident(logs, incident, reason, urgency)
-                    except OpenRouterError as exc:
-                        if index < len(models) - 1 and _should_retry_with_fallback_model(exc):
-                            next_model = models[index + 1]
-                            logger.warning(
-                                "OpenRouter investigation model %s failed with %s; retrying with %s",
-                                model_name,
-                                exc,
-                                next_model,
-                            )
-                            continue
-                        logger.warning("OpenRouter investigation failed: %s", exc)
-                        fallback_reason = f"{reason} (fallback after OpenRouter error: {exc})"
-                        break
-                    except _InvestigationMaxIterationsExceeded:
-                        logger.warning("LLM investigation hit max iterations; falling back")
-                        fallback_reason = f"{reason} (fallback after max iterations)"
-                        break
-        except TimeoutError:
-            logger.warning("OpenRouter investigation timed out after %.1fs", self._total_timeout_seconds)
-            fallback_reason = f"{reason} (fallback after timeout)"
+                        continue
+                    logger.warning("OpenRouter investigation failed: %s", exc)
+                    fallback_reason = f"{reason} (fallback after OpenRouter error: {exc})"
+                    break
+                except _InvestigationMaxIterationsExceeded:
+                    logger.warning("LLM investigation hit max iterations; falling back")
+                    fallback_reason = f"{reason} (fallback after max iterations)"
+                    break
         except Exception as exc:
             logger.exception("Unexpected investigation failure")
             fallback_reason = f"{reason} (fallback after unexpected error: {exc})"
