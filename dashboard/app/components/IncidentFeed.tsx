@@ -16,7 +16,7 @@ export function IncidentFeed() {
   if (incidents.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-amber-200 bg-white/60 p-4 text-xs text-slate-500">
-        Waiting for `incident:created` events...
+        Nothing to report...
       </div>
     );
   }
