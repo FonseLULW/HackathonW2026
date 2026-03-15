@@ -3,15 +3,20 @@
 import { useLiveData } from "./live-data";
 
 const statConfig: Array<{
-  key: "logsScored" | "triagedBatches" | "incidentsRaised" | "toolCalls" | "logsSuppressed";
+  key:
+    | "logsScored"
+    | "triagedBatches"
+    | "incidentsRaised"
+    | "toolCalls"
+    | "logsSuppressed";
   label: string;
   note: string;
 }> = [
-  { key: "logsScored", label: "Logs Scored", note: "`log:scored` events" },
-  { key: "triagedBatches", label: "Batches Triaged", note: "`log:triaged` events" },
-  { key: "incidentsRaised", label: "Incidents Raised", note: "`incident:created` events" },
-  { key: "toolCalls", label: "Tool Calls", note: "`agent:tool_call` events" },
-  { key: "logsSuppressed", label: "Logs Suppressed", note: "`log:suppressed` events" },
+  { key: "logsScored", label: "Logs Scored", note: "" },
+  { key: "triagedBatches", label: "Batches Triaged", note: "" },
+  { key: "incidentsRaised", label: "Incidents Raised", note: "" },
+  { key: "toolCalls", label: "Tool Calls", note: "" },
+  { key: "logsSuppressed", label: "Logs Suppressed", note: "" },
 ];
 
 export function LiveStats() {
