@@ -14,10 +14,11 @@ logger = logging.getLogger("snooplog.agent.router")
 class TierRouter:
     """Routes scored logs to archive, triage, or investigation paths."""
 
-    def __init__(self, batcher, investigator, pattern_memory=None) -> None:
+    def __init__(self, batcher, investigator, pattern_memory=None, incident_tracker=None) -> None:
         self._batcher = batcher
         self._investigator = investigator
         self._pattern_memory = pattern_memory
+        self._incident_tracker = incident_tracker
 
     async def handle(self, event: dict[str, Any]) -> None:
         pipeline_state = event.get("pipeline", {})
@@ -61,6 +62,23 @@ class TierRouter:
             await self._batcher.add(event)
             return
 
+        if self._incident_tracker is not None:
+            should_investigate, updated_payload = await self._incident_tracker.begin_or_attach([event])
+            if not should_investigate:
+                if updated_payload is not None:
+                    logger.info(
+                        "Attached duplicate HIGH tier log %s to incident %s (occurrences=%s)",
+                        event.get("id", "?")[:8],
+                        updated_payload.get("id", "?")[:8],
+                        updated_payload.get("occurrence_count", 0),
+                    )
+                    await bus.emit("incident:updated", updated_payload)
+                else:
+                    logger.info(
+                        "Attached HIGH tier log %s to in-flight incident investigation",
+                        event.get("id", "?")[:8],
+                    )
+                return
         logger.warning(
             "HIGH tier log %s (score=%.3f) → immediate investigation | %s",
             event.get("id", "?")[:8],

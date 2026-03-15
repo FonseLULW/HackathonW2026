@@ -9,6 +9,11 @@ export function IncidentDetail({ incident }: IncidentDetailProps) {
   const rootCauseText = incident.rootCause ?? "Root cause pending analysis.";
   const suggestedFixText =
     incident.suggestedFix ?? "Suggested fix pending analysis.";
+  const occurrenceCount =
+    incident.occurrenceCount ??
+    incident.logCount ??
+    incident.relatedLogIds.length ??
+    1;
   const codeRefs = incident.codeRefs.length
     ? incident.codeRefs
     : [{ file: "unknown", line: undefined, blame: "blame unavailable" }];
@@ -34,9 +39,9 @@ export function IncidentDetail({ incident }: IncidentDetailProps) {
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Batch Size</p>
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Occurrences</p>
           <p className="mt-2 text-sm font-medium text-slate-700">
-            {(incident.logCount ?? incident.relatedLogIds.length ?? 1)} log(s)
+            {occurrenceCount} log(s)
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -46,6 +51,11 @@ export function IncidentDetail({ incident }: IncidentDetailProps) {
           </p>
         </div>
       </div>
+      {incident.triggerCount ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-slate-700">
+          Correlated trigger groups: {incident.triggerCount}
+        </div>
+      ) : null}
       {incident.investigationReason ? (
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-3 text-indigo-800">
           Investigation trigger: {incident.investigationReason}

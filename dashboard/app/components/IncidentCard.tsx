@@ -23,6 +23,11 @@ function severityClasses(severity: string): string {
 
 export function IncidentCard({ incident }: IncidentCardProps) {
   const timestamp = new Date(incident.timestamp).toLocaleTimeString();
+  const occurrenceCount =
+    incident.occurrenceCount ??
+    incident.logCount ??
+    incident.relatedLogIds.length ??
+    1;
   const handleToggle = (event: React.SyntheticEvent<HTMLDetailsElement>) => {
     if (!event.currentTarget.open) {
       return;
@@ -59,7 +64,7 @@ export function IncidentCard({ incident }: IncidentCardProps) {
         </svg>
       </summary>
       <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.18em] opacity-60">
-        {timestamp} | {incident.source ?? "unknown source"} | {(incident.logCount ?? incident.relatedLogIds.length ?? 1)} log(s) | First code ref: `{incident.firstCodeRef}`
+        {timestamp} | {incident.source ?? "unknown source"} | {occurrenceCount} occurrence(s) | First code ref: `{incident.firstCodeRef}`
       </p>
       <IncidentDetail incident={incident} />
     </details>

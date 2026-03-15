@@ -15,7 +15,10 @@ export type IncidentContextEvent = {
 
 export type IncidentFeedItem = {
   id: string;
+  correlationKey?: string;
   timestamp: string;
+  firstSeenTimestamp?: string;
+  lastSeenTimestamp?: string;
   source?: string;
   severity: string;
   summary: string;
@@ -25,6 +28,8 @@ export type IncidentFeedItem = {
   investigationReason?: string;
   investigationUrgency?: string;
   logCount?: number;
+  occurrenceCount?: number;
+  triggerCount?: number;
   relatedLogIds: string[];
   primaryLogId?: string;
   primaryEvent?: IncidentContextEvent;

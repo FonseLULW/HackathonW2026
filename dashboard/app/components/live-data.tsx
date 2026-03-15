@@ -158,7 +158,19 @@ function normalizeIncident(data: unknown): IncidentFeedItem | null {
 
   return {
     id: String(record.id ?? `${Date.now()}-${Math.random()}`),
+    correlationKey:
+      typeof record.correlation_key === "string"
+        ? record.correlation_key
+        : undefined,
     timestamp: String(record.timestamp ?? new Date().toISOString()),
+    firstSeenTimestamp:
+      typeof record.first_seen_timestamp === "string"
+        ? record.first_seen_timestamp
+        : undefined,
+    lastSeenTimestamp:
+      typeof record.last_seen_timestamp === "string"
+        ? record.last_seen_timestamp
+        : undefined,
     source: typeof record.source === "string" ? record.source : undefined,
     severity: String(incidentRecord.severity ?? record.severity ?? "medium"),
     summary: String(summary),
@@ -201,6 +213,18 @@ function normalizeIncident(data: unknown): IncidentFeedItem | null {
         ? record.log_count
         : record.log_count
           ? Number(record.log_count)
+          : undefined,
+    occurrenceCount:
+      typeof record.occurrence_count === "number"
+        ? record.occurrence_count
+        : record.occurrence_count
+          ? Number(record.occurrence_count)
+          : undefined,
+    triggerCount:
+      typeof record.trigger_count === "number"
+        ? record.trigger_count
+        : record.trigger_count
+          ? Number(record.trigger_count)
           : undefined,
     relatedLogIds,
     primaryLogId:
@@ -255,6 +279,24 @@ function normalizeAgentCall(data: unknown): AgentCallItem | null {
     timestamp,
     command,
   };
+}
+
+function upsertIncident(
+  incidents: IncidentFeedItem[],
+  incoming: IncidentFeedItem,
+): IncidentFeedItem[] {
+  const index = incidents.findIndex((item) => item.id === incoming.id);
+  if (index === -1) {
+    return [incoming, ...incidents].slice(0, MAX_INCIDENTS);
+  }
+
+  const next = [...incidents];
+  next[index] = incoming;
+  next.sort(
+    (left, right) =>
+      new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime(),
+  );
+  return next.slice(0, MAX_INCIDENTS);
 }
 
 export function LiveDataProvider({ children }: { children: ReactNode }) {
@@ -435,12 +477,19 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
             case "incident:created": {
               const item = normalizeIncident(msg.data);
               if (item) {
-                setIncidents((prev) => [item, ...prev].slice(0, MAX_INCIDENTS));
+                setIncidents((prev) => upsertIncident(prev, item));
               }
               setStats((prev) => ({
                 ...prev,
                 incidentsRaised: prev.incidentsRaised + 1,
               }));
+              break;
+            }
+            case "incident:updated": {
+              const item = normalizeIncident(msg.data);
+              if (item) {
+                setIncidents((prev) => upsertIncident(prev, item));
+              }
               break;
             }
             case "agent:tool_call": {

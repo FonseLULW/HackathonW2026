@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from pipeline.agent import (
     HeuristicIncidentInvestigator,
+    IncidentCorrelationTracker,
     KnownPatternMemory,
     LlmIncidentInvestigator,
     TierRouter,
@@ -105,6 +106,7 @@ async def startup():
             ),
             db_path=os.getenv("KNOWN_LOG_DB_PATH", "/data/known_patterns.db"),
         )
+        incident_tracker = IncidentCorrelationTracker(pattern_memory=pattern_memory)
         triage_client = OpenRouterTriageClient(
             llm_client=llm_client,
             fallback=heuristic_triage,
@@ -115,10 +117,12 @@ async def startup():
             fallback=heuristic_investigator,
         )
         investigator.set_pattern_memory(pattern_memory)
+        investigator.set_incident_tracker(incident_tracker)
         batcher = MediumLogBatcher(
             triage_client=triage_client,
             investigator=investigator,
             pattern_memory=pattern_memory,
+            incident_tracker=incident_tracker,
             flush_window_seconds=float(os.getenv("MEDIUM_BATCH_FLUSH_SECONDS", "30")),
             max_batch_size=int(os.getenv("MEDIUM_BATCH_MAX_SIZE", "20")),
         )
@@ -126,6 +130,7 @@ async def startup():
             batcher=batcher,
             investigator=investigator,
             pattern_memory=pattern_memory,
+            incident_tracker=incident_tracker,
         )
         bus.subscribe("log:scored", router.handle)
         app.state.tier_router = router

@@ -32,9 +32,13 @@ class HeuristicIncidentInvestigator:
     def __init__(self, tool_executor) -> None:
         self._tool_executor = tool_executor
         self._pattern_memory = None
+        self._incident_tracker = None
 
     def set_pattern_memory(self, pattern_memory) -> None:
         self._pattern_memory = pattern_memory
+
+    def set_incident_tracker(self, incident_tracker) -> None:
+        self._incident_tracker = incident_tracker
 
     async def investigate(
         self,
@@ -75,6 +79,8 @@ class HeuristicIncidentInvestigator:
             reason=reason,
             urgency=urgency,
         )
+        if self._incident_tracker is not None:
+            payload = await self._incident_tracker.mark_created(logs, payload)
         if self._pattern_memory is not None:
             self._pattern_memory.remember(
                 logs,
@@ -178,6 +184,7 @@ class LlmIncidentInvestigator:
         self._tool_executor = tool_executor
         self._fallback = fallback
         self._pattern_memory = None
+        self._incident_tracker = None
         self._model = model or os.getenv("OPENROUTER_INVESTIGATION_MODEL", "z-ai/glm-5")
         configured_fallbacks = fallback_models
         if configured_fallbacks is None:
@@ -199,6 +206,11 @@ class LlmIncidentInvestigator:
         self._pattern_memory = pattern_memory
         if hasattr(self._fallback, "set_pattern_memory"):
             self._fallback.set_pattern_memory(pattern_memory)
+
+    def set_incident_tracker(self, incident_tracker) -> None:
+        self._incident_tracker = incident_tracker
+        if hasattr(self._fallback, "set_incident_tracker"):
+            self._fallback.set_incident_tracker(incident_tracker)
 
     async def investigate(
         self,
@@ -406,6 +418,8 @@ class LlmIncidentInvestigator:
             reason=reason,
             urgency=urgency,
         )
+        if self._incident_tracker is not None:
+            payload = await self._incident_tracker.mark_created(logs, payload)
         if self._pattern_memory is not None:
             self._pattern_memory.remember(
                 logs,

@@ -21,12 +21,14 @@ class MediumLogBatcher:
         triage_client,
         investigator,
         pattern_memory=None,
+        incident_tracker=None,
         flush_window_seconds: float = 30.0,
         max_batch_size: int = 20,
     ) -> None:
         self._triage_client = triage_client
         self._investigator = investigator
         self._pattern_memory = pattern_memory
+        self._incident_tracker = incident_tracker
         self._flush_window_seconds = flush_window_seconds
         self._max_batch_size = max_batch_size
         self._batches: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -68,6 +70,25 @@ class MediumLogBatcher:
             )
 
         if triage.escalate:
+            if self._incident_tracker is not None:
+                should_investigate, updated_payload = await self._incident_tracker.begin_or_attach(batch)
+                if not should_investigate:
+                    if updated_payload is not None:
+                        logger.info(
+                            "Attached %d escalated log(s) from %s to incident %s (occurrences=%s)",
+                            len(batch),
+                            source,
+                            updated_payload.get("id", "?")[:8],
+                            updated_payload.get("occurrence_count", 0),
+                        )
+                        await bus.emit("incident:updated", updated_payload)
+                    else:
+                        logger.info(
+                            "Attached %d escalated log(s) from %s to in-flight incident investigation",
+                            len(batch),
+                            source,
+                        )
+                    return
             await self._investigator.investigate(
                 batch,
                 reason=triage.reason,
