@@ -32,4 +32,4 @@ snapshots:
 # Output integrations
 integrations:
   discord:
-    enabled: false     # set true to forward incidents to DISCORD_WEBHOOK_URL
+    enabled: true      # forward incidents to DISCORD_WEBHOOK_URL
