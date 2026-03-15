@@ -2,56 +2,23 @@ name: Traffic Generator
 
 on:
   schedule:
-    # Burst every minute on March 15, then skip automatically outside March 15, 2026.
-    - cron: '* * 15 3 *'
-    # Keep Firestore warm with one daily run after demo day.
-    - cron: '0 16 * * *'
-  workflow_dispatch: {} # Allow manual trigger
+    - cron: '0 16 * * *' # Daily at 4 PM UTC — keeps dashboard populated
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: 'How long to generate traffic (minutes)'
+        required: false
+        default: '30'
 
 env:
   DUMMY_APP_URL: ${{ secrets.DUMMY_APP_URL != '' && secrets.DUMMY_APP_URL || vars.DUMMY_APP_URL }}
-  DEMO_DAY_DATE: '2026-03-15'
-  DEMO_DAY_TZ: 'America/Vancouver'
 
 jobs:
   generate-traffic:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 35
     steps:
-      - name: Select traffic mode
-        id: mode
-        env:
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-
-          CURRENT_DATE="$(TZ="$DEMO_DAY_TZ" date +%F)"
-          MODE="daily"
-          SHOULD_RUN="true"
-
-          if [ "$EVENT_NAME" = "schedule" ] && [ "$EVENT_SCHEDULE" = "* * 15 3 *" ]; then
-            if [ "$CURRENT_DATE" = "$DEMO_DAY_DATE" ]; then
-              MODE="demo"
-            else
-              SHOULD_RUN="false"
-            fi
-          elif [ "$EVENT_NAME" = "schedule" ] && [ "$EVENT_SCHEDULE" = "0 16 * * *" ] && [ "$CURRENT_DATE" = "$DEMO_DAY_DATE" ]; then
-            SHOULD_RUN="false"
-          fi
-
-          echo "current_date=$CURRENT_DATE" >> "$GITHUB_OUTPUT"
-          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
-          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
-          echo "Mode: $MODE | should_run: $SHOULD_RUN | schedule: ${EVENT_SCHEDULE:-manual}"
-
-      - name: Skip inactive schedule
-        if: steps.mode.outputs.should_run != 'true'
-        run: |
-          echo "Skipping this scheduled run based on the March 15, 2026 demo-day rules."
-
-      - name: Generate order traffic
-        if: steps.mode.outputs.should_run == 'true'
+      - name: Generate organic traffic
         run: |
           set -euo pipefail
 
@@ -60,60 +27,105 @@ jobs:
             exit 1
           fi
 
-          MODE="${{ steps.mode.outputs.mode }}"
-          if [ "$MODE" = "demo" ]; then
-            ORDER_COUNT=24
-            BROWSE_COUNT=12
-            WAIT_SECONDS=20
-            REQUEST_DELAY=0.2
+          # Scheduled runs get 2 minutes; manual runs use the input duration
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            DURATION_MIN=2
           else
-            ORDER_COUNT=8
-            BROWSE_COUNT=4
-            WAIT_SECONDS=10
-            REQUEST_DELAY=0.5
+            DURATION_MIN="${{ inputs.duration_minutes || '30' }}"
           fi
+          END_TIME=$(( $(date +%s) + DURATION_MIN * 60 ))
 
-          echo "Generating traffic against $DUMMY_APP_URL"
-          echo "Traffic mode: $MODE"
-          echo "Orders: $ORDER_COUNT | Browses: $BROWSE_COUNT | Wait: ${WAIT_SECONDS}s"
+          SKUS=("sku_keyboard" "sku_monitor" "sku_headset" "sku_laptop_stand")
+          EMAILS=("alice@example.com" "bob@test.io" "carol@demo.dev" "dave@shop.net" "eve@acme.org")
 
-          # Simulate normal orders
-          for i in $(seq 1 "$ORDER_COUNT"); do
-            curl -s -o /dev/null -w "%{http_code}" \
-              "$DUMMY_APP_URL/api/orders" \
-              -X POST -H 'Content-Type: application/json' \
-              -d "{\"items\":[{\"id\":\"SKU-$i\",\"qty\":$((RANDOM % 5 + 1))}]}"
-            echo " - order $i sent"
-            sleep "$REQUEST_DELAY"
+          # Weighted action picker: browse heavy, orders moderate, selects common
+          # 0-39 = browse (40%), 40-74 = select (35%), 75-94 = order (20%), 95-99 = bad request (5%)
+          pick_action() {
+            local roll=$((RANDOM % 100))
+            if   [ $roll -lt 40 ]; then echo "browse"
+            elif [ $roll -lt 75 ]; then echo "select"
+            elif [ $roll -lt 95 ]; then echo "order"
+            else                        echo "error"
+            fi
+          }
+
+          # Random delay centered around ~10s: 4-18s range
+          organic_delay() {
+            local roll=$((RANDOM % 100))
+            if [ $roll -lt 20 ]; then
+              # 20% chance of quick burst (2-5s)
+              echo $(( RANDOM % 4 + 2 ))
+            elif [ $roll -lt 70 ]; then
+              # 50% chance of normal pace (7-13s)
+              echo $(( RANDOM % 7 + 7 ))
+            else
+              # 30% chance of slightly longer gap (14-20s)
+              echo $(( RANDOM % 7 + 14 ))
+            fi
+          }
+
+          REQUEST_NUM=0
+          echo "=== Traffic generator started ==="
+          echo "Duration: ${DURATION_MIN}m | Target: $DUMMY_APP_URL"
+          echo "End time: $(date -d @$END_TIME '+%H:%M:%S %Z' 2>/dev/null || date -r $END_TIME '+%H:%M:%S %Z' 2>/dev/null || echo $END_TIME)"
+          echo ""
+
+          while [ "$(date +%s)" -lt "$END_TIME" ]; do
+            ACTION=$(pick_action)
+            REQUEST_NUM=$((REQUEST_NUM + 1))
+            ELAPSED=$(( ( $(date +%s) - END_TIME + DURATION_MIN * 60 ) / 60 ))
+
+            case "$ACTION" in
+              browse)
+                STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$DUMMY_APP_URL/api/products" || echo "000")
+                echo "[${ELAPSED}m/${DURATION_MIN}m] #$REQUEST_NUM browse → $STATUS"
+                ;;
+
+              select)
+                SKU="${SKUS[$((RANDOM % ${#SKUS[@]}))]}"
+                STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                  "$DUMMY_APP_URL/api/products/select" \
+                  -X POST -H 'Content-Type: application/json' \
+                  -d "{\"productId\":\"$SKU\"}" || echo "000")
+                echo "[${ELAPSED}m/${DURATION_MIN}m] #$REQUEST_NUM select $SKU → $STATUS"
+                ;;
+
+              order)
+                SKU="${SKUS[$((RANDOM % ${#SKUS[@]}))]}"
+                QTY=$((RANDOM % 3 + 1))
+                EMAIL="${EMAILS[$((RANDOM % ${#EMAILS[@]}))]}"
+                STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                  "$DUMMY_APP_URL/api/orders" \
+                  -X POST -H 'Content-Type: application/json' \
+                  -d "{\"productId\":\"$SKU\",\"quantity\":$QTY,\"email\":\"$EMAIL\"}" || echo "000")
+                echo "[${ELAPSED}m/${DURATION_MIN}m] #$REQUEST_NUM order $SKU x$QTY → $STATUS"
+                ;;
+
+              error)
+                ERROR_PAYLOADS=(
+                  '{"invalid": true}'
+                  '{"productId":"sku_nonexistent","quantity":1,"email":"x@y.com"}'
+                  '{"productId":"sku_monitor","quantity":0,"email":"bad"}'
+                  '{}'
+                )
+                PAYLOAD="${ERROR_PAYLOADS[$((RANDOM % ${#ERROR_PAYLOADS[@]}))]}"
+                curl -s -o /dev/null "$DUMMY_APP_URL/api/orders" \
+                  -X POST -H 'Content-Type: application/json' \
+                  -d "$PAYLOAD" || true
+                echo "[${ELAPSED}m/${DURATION_MIN}m] #$REQUEST_NUM error payload"
+                ;;
+            esac
+
+            DELAY=$(organic_delay)
+            echo "    sleeping ${DELAY}s..."
+            sleep "$DELAY"
           done
 
-          # Simulate product browsing (generates info logs)
-          for i in $(seq 1 "$BROWSE_COUNT"); do
-            curl -s -o /dev/null "$DUMMY_APP_URL/api/products" || true
-            echo " - browse $i sent"
-            sleep "$REQUEST_DELAY"
-          done
-
-          # Simulate error scenarios
-          for payload in '{"invalid": true}' '{"items":[]}' '{"items":[{"id":"SKU-DEMO","qty":0}]}' '{}'; do
-            curl -s -o /dev/null "$DUMMY_APP_URL/api/orders" \
-              -X POST -H 'Content-Type: application/json' \
-              -d "$payload" || true
-            echo " - error case sent: $payload"
-          done
-
-          echo "wait_seconds=$WAIT_SECONDS" >> "$GITHUB_ENV"
-          echo "Traffic generation complete"
-
-      - name: Wait for pipeline processing
-        if: steps.mode.outputs.should_run == 'true'
-        run: |
-          WAIT_SECONDS="${WAIT_SECONDS:-10}"
-          echo "Waiting ${WAIT_SECONDS}s for pipeline to process, triage, and investigate..."
-          sleep "$WAIT_SECONDS"
+          echo ""
+          echo "=== Traffic generator finished ==="
+          echo "Total requests: $REQUEST_NUM"
 
       - name: Verify pipeline health
-        if: steps.mode.outputs.should_run == 'true'
         run: |
           PIPELINE_URL="${{ secrets.PIPELINE_URL != '' && secrets.PIPELINE_URL || vars.PIPELINE_URL }}"
           if [ -n "$PIPELINE_URL" ]; then
