@@ -1,5 +1,4 @@
 const TARGET = process.env.TARGET_URL || "http://dummy-app:3000";
-const CHAOS_MODE = process.env.CHAOS_MODE || "db-leak";
 const SAFE_PRODUCT_IDS = ["sku_monitor", "sku_headset", "sku_laptop_stand"];
 
 async function hit(path, options = {}) {
@@ -47,10 +46,6 @@ async function loop() {
   let iteration = 0;
   while (true) {
     iteration += 1;
-
-    if (iteration === 3) {
-      await hit(`/api/chaos/${CHAOS_MODE}`, { method: "POST" });
-    }
 
     if (iteration % 6 === 0) {
       await selectSafeProduct();
