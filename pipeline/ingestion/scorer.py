@@ -6,6 +6,7 @@ Returns 0.0 (normal) → 1.0 (anomalous). Used until IsolationForest model is tr
 
 from __future__ import annotations
 
+import json
 import re
 
 from shared.config import scoring_boosts, scoring_level_base, scoring_long_message_threshold, tier_high, tier_medium
@@ -21,6 +22,8 @@ _CRITICAL_KEYWORDS = re.compile(
 
 _ERROR_KEYWORDS = re.compile(
     r"traceback|stack trace|exception|unhandled|"
+    r"typeerror|referenceerror|attributeerror|keyerror|indexerror|"
+    r"cannot read properties of null|undefined is not a function|"
     r"connection refused|connection lost|connection terminated|"
     r"too many connections|permission denied|access denied|"
     r"timeout|timed out|deadline exceeded|"
@@ -42,25 +45,33 @@ def heuristic_score(event: LogEvent) -> float:
     boosts = scoring_boosts()
 
     score = level_base.get(event.level.value, 0.15)
-    msg = event.message
+    evidence = _build_scoring_evidence(event)
 
     # Keyword boosts
-    if _CRITICAL_KEYWORDS.search(msg):
+    if _CRITICAL_KEYWORDS.search(evidence):
         score += boosts.get("critical_keywords", 0.25)
-    elif _ERROR_KEYWORDS.search(msg):
+    elif _ERROR_KEYWORDS.search(evidence):
         score += boosts.get("error_keywords", 0.15)
-    elif _WARN_KEYWORDS.search(msg):
+    elif _WARN_KEYWORDS.search(evidence):
         score += boosts.get("warn_keywords", 0.10)
 
-    # Stack trace presence (multi-line with "at " or "Traceback")
-    if "\n" in msg and (re.search(r"^\s+at ", msg, re.MULTILINE) or "Traceback" in msg):
+    # Stack traces often live in raw payloads rather than the short message field.
+    if "\n" in evidence and (re.search(r"^\s+at ", evidence, re.MULTILINE) or "Traceback" in evidence):
         score += boosts.get("stack_trace", 0.10)
 
     # Long messages tend to be more interesting (errors have details)
-    if len(msg) > scoring_long_message_threshold():
+    if len(evidence) > scoring_long_message_threshold():
         score += boosts.get("long_message", 0.05)
 
     return min(score, 1.0)
+
+
+def _build_scoring_evidence(event: LogEvent) -> str:
+    parts = [event.message, event.raw or ""]
+    metadata = event.metadata.extra or {}
+    if metadata:
+        parts.append(json.dumps(metadata, sort_keys=True, default=str))
+    return "\n".join(part for part in parts if part)
 
 
 def assign_tier(score: float) -> Tier:

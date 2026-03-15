@@ -18,6 +18,10 @@ UUID_RE = re.compile(
 HEX_RE = re.compile(r"\b0x[0-9a-fA-F]+\b")
 NUMBER_RE = re.compile(r"\b\d+\b")
 WHITESPACE_RE = re.compile(r"\s+")
+_SUPPRESSIBLE_BENIGN_ACTIONS = {
+    "investigation_dismissed",
+    "human_confirmed_benign",
+}
 
 
 class KnownPatternMemory:
@@ -73,6 +77,8 @@ class KnownPatternMemory:
 
             seen_count = int(row["seen_count"]) + 1
             if row["decision"] != "benign":
+                return None
+            if row["action"] not in _SUPPRESSIBLE_BENIGN_ACTIONS:
                 return None
             if seen_count < self._benign_min_repeats:
                 return None

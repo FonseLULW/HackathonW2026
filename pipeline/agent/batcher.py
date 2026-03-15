@@ -67,15 +67,6 @@ class MediumLogBatcher:
                 len(batch), source, triage.reason,
             )
 
-        if self._pattern_memory is not None and not triage.escalate:
-            self._pattern_memory.remember(
-                batch,
-                decision="benign",
-                action="triaged_dismissed",
-                reason=triage.reason,
-                urgency=triage.urgency,
-            )
-
         if triage.escalate:
             await self._investigator.investigate(
                 batch,

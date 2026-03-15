@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
@@ -17,7 +18,11 @@ class HeuristicTriageClient:
     """Cheap stand-in for the medium-tier LLM triage step."""
 
     async def triage(self, logs: list[dict[str, Any]]) -> TriageResult:
-        combined = "\n".join(log.get("message", "") for log in logs).lower()
+        evidence = [_build_log_evidence(log) for log in logs]
+        combined = "\n".join(evidence).lower()
+        error_count = sum(
+            1 for log in logs if str(log.get("level", "")).lower() in {"warn", "warning", "error", "fatal"}
+        )
 
         if any(
             term in combined
@@ -25,6 +30,13 @@ class HeuristicTriageClient:
                 "fatal",
                 "traceback",
                 "exception",
+                "typeerror",
+                "referenceerror",
+                "attributeerror",
+                "keyerror",
+                "indexerror",
+                "cannot read properties of null",
+                "undefined is not a function",
                 "too many connections",
                 "connection refused",
                 "econnrefused",
@@ -39,8 +51,14 @@ class HeuristicTriageClient:
                 urgency="high",
             )
 
-        warning_count = sum(1 for log in logs if log.get("level") in {"warn", "warning", "error"})
-        if warning_count >= 5:
+        if error_count >= 3 and any(_is_request_path_log(log) for log in logs):
+            return TriageResult(
+                escalate=True,
+                reason="Detected repeated request-path errors that likely impact a live user flow.",
+                urgency="high",
+            )
+
+        if error_count >= 5:
             return TriageResult(
                 escalate=True,
                 reason="Batch contains enough warning/error logs to justify investigation.",
@@ -98,5 +116,21 @@ class OpenRouterTriageClient:
         except (OpenRouterError, ValueError) as exc:
             fallback_result = await self._fallback.triage(logs)
             return fallback_result.model_copy(
-                update={"reason": f"Fallback triage used after OpenRouter failure: {exc}"}
+                update={"reason": f"{fallback_result.reason} Fallback triage used after OpenRouter failure: {exc}"}
             )
+
+
+def _build_log_evidence(log: dict[str, Any]) -> str:
+    metadata = log.get("metadata", {}) or {}
+    extra = metadata.get("extra", {}) if isinstance(metadata, dict) else {}
+    parts = [str(log.get("message") or ""), str(log.get("raw") or "")]
+    if extra:
+        parts.append(json.dumps(extra, sort_keys=True, default=str))
+    return "\n".join(part for part in parts if part)
+
+
+def _is_request_path_log(log: dict[str, Any]) -> bool:
+    metadata = log.get("metadata", {}) or {}
+    extra = metadata.get("extra", {}) if isinstance(metadata, dict) else {}
+    route = extra.get("route")
+    return isinstance(route, str) and route.startswith("/")

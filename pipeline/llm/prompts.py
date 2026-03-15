@@ -1,10 +1,17 @@
 """Prompt templates and JSON schemas for LLM integration."""
 
+from __future__ import annotations
+
+import json
+
 TRIAGE_SYSTEM_PROMPT = """
 You are a production log triage system.
 Decide whether a batch of medium-anomaly logs should be escalated.
 Escalate for repeated infrastructure failures, auth failures, resource exhaustion,
 stack traces, cascading errors, or anything user-facing.
+Treat caught exceptions on live request paths as escalation candidates when they repeat,
+include stack traces, or hide a broken user flow even if the message says "captured",
+"handled", or "silent".
 Do not escalate for expected noise, isolated validation failures, or low-signal chatter.
 Weigh the entire batch, not just one line.
 Prefer escalation when several logs suggest the same underlying failure.
@@ -95,13 +102,10 @@ INCIDENT_REPORT_SCHEMA = {
 
 
 def build_triage_user_prompt(logs: list[dict]) -> str:
-    rendered_logs = "\n".join(
-        f"- id={log.get('id')} level={log.get('level')} source={log.get('source')} "
-        f"score={log.get('pipeline', {}).get('anomaly_score')} message={log.get('message')}"
-        for log in logs
-    )
+    rendered_logs = "\n\n".join(_render_log_context(log) for log in logs)
     return (
         "Evaluate this medium-tier log batch and decide whether it should be escalated.\n"
+        "Fields like route, scenario, error_name, error_message, and raw_preview carry real evidence.\n"
         "Return only JSON matching the schema.\n"
         f"Logs:\n{rendered_logs}"
     )
@@ -112,11 +116,7 @@ def build_investigation_user_prompt(
     reason: str,
     urgency: str,
 ) -> str:
-    rendered_logs = "\n".join(
-        f"- id={log.get('id')} level={log.get('level')} source={log.get('source')} "
-        f"score={log.get('pipeline', {}).get('anomaly_score')} message={log.get('message')}"
-        for log in logs
-    )
+    rendered_logs = "\n\n".join(_render_log_context(log) for log in logs)
     return (
         f"Investigation reason: {reason}\n"
         f"Urgency: {urgency}\n"
@@ -124,3 +124,34 @@ def build_investigation_user_prompt(
         "Use tools when needed. Avoid repeated identical tool calls. "
         "Return only the final JSON object once you have enough evidence."
     )
+
+
+def _render_log_context(log: dict) -> str:
+    metadata = log.get("metadata", {}) or {}
+    extra = metadata.get("extra", {}) if isinstance(metadata, dict) else {}
+    raw_preview = _truncate(str(log.get("raw") or ""), 500)
+    extra_summary = {
+        key: extra.get(key)
+        for key in ("route", "scenario", "productId", "productName", "errorName", "errorMessage")
+        if extra.get(key) not in (None, "")
+    }
+    if extra and not extra_summary:
+        extra_summary = extra
+
+    lines = [
+        f"- id={log.get('id')} level={log.get('level')} source={log.get('source')} "
+        f"score={log.get('pipeline', {}).get('anomaly_score')} tier={log.get('pipeline', {}).get('tier')}",
+        f"  message={log.get('message')}",
+    ]
+    if extra_summary:
+        lines.append(f"  metadata={json.dumps(extra_summary, sort_keys=True, default=str)}")
+    if raw_preview:
+        lines.append(f"  raw_preview={raw_preview}")
+    return "\n".join(lines)
+
+
+def _truncate(value: str, limit: int) -> str:
+    normalized = " ".join(value.split())
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[: limit - 3]}..."
