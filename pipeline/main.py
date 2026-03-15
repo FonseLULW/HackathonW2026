@@ -19,6 +19,7 @@ from pipeline.agent.batcher import MediumLogBatcher
 from pipeline.integrations.discord import configure_discord_integration
 from pipeline.integrations.firestore import configure_firestore_integration
 from pipeline.llm import HeuristicTriageClient, OpenRouterChatClient, OpenRouterTriageClient
+from pipeline.ml.model import scorer as ml_scorer
 from shared.events import bus
 
 logging.basicConfig(
@@ -129,6 +130,7 @@ async def startup():
         bus.subscribe("log:scored", router.handle)
         app.state.tier_router = router
         app.state.medium_batcher = batcher
+        app.state.pattern_memory = pattern_memory
         logger.info("Person 2 tier router subscribed to log:scored")
     configure_discord_integration()
     configure_firestore_integration()
@@ -139,3 +141,8 @@ async def shutdown():
     batcher = getattr(app.state, "medium_batcher", None)
     if batcher is not None:
         await batcher.shutdown()
+    ml_scorer.save_snapshot()
+    pattern_memory = getattr(app.state, "pattern_memory", None)
+    if pattern_memory is not None:
+        pattern_memory.save_snapshot()
+        pattern_memory.close()

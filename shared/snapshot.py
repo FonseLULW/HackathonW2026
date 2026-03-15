@@ -47,6 +47,44 @@ class SnapshotManager:
             return self._exists_gcs(name)
         return self._exists_local(name)
 
+    def save_file(self, name: str, source_path: str | Path) -> bool:
+        """Save a file from disk as a named snapshot."""
+        path = Path(source_path)
+        if not path.exists():
+            logger.warning("Cannot snapshot missing file: %s", path)
+            return False
+        try:
+            return self.save(name, path.read_bytes())
+        except Exception as e:
+            logger.warning("Failed to snapshot file %s: %s", path, e)
+            return False
+
+    def restore_file(
+        self,
+        name: str,
+        target_path: str | Path,
+        *,
+        overwrite: bool = False,
+    ) -> bool:
+        """Restore a named snapshot to disk."""
+        path = Path(target_path)
+        if path.exists() and path.stat().st_size > 0 and not overwrite:
+            logger.info("Skipping snapshot restore for existing file: %s", path)
+            return False
+        data = self.load(name)
+        if data is None:
+            return False
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_name(f"{path.name}.tmp")
+            tmp.write_bytes(data)
+            tmp.replace(path)
+            logger.info("Snapshot restored to %s from %s", path, name)
+            return True
+        except Exception as e:
+            logger.warning("Failed to restore snapshot %s to %s: %s", name, path, e)
+            return False
+
     # --- Local backend ---
 
     def _save_local(self, name: str, data: bytes) -> bool:

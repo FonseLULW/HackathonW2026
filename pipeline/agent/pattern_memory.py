@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import sqlite3
@@ -10,6 +11,14 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+
+from shared.config import (
+    snapshot_backend,
+    snapshot_gcs_bucket,
+    snapshot_gcs_prefix,
+    snapshot_local_dir,
+)
+from shared.snapshot import SnapshotManager
 
 
 UUID_RE = re.compile(
@@ -22,6 +31,9 @@ _SUPPRESSIBLE_BENIGN_ACTIONS = {
     "investigation_dismissed",
     "human_confirmed_benign",
 }
+_SNAPSHOT_NAME = "known_patterns.db"
+
+logger = logging.getLogger("snooplog.pattern_memory")
 
 
 class KnownPatternMemory:
@@ -41,10 +53,18 @@ class KnownPatternMemory:
             db_path or os.getenv("KNOWN_LOG_DB_PATH", "/data/known_patterns.db")
         ).resolve()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._snapshots = SnapshotManager(
+            backend=snapshot_backend(),
+            local_dir=snapshot_local_dir(),
+            gcs_bucket=snapshot_gcs_bucket(),
+            gcs_prefix=snapshot_gcs_prefix(),
+        )
+        self._restore_snapshot()
         self._lock = threading.Lock()
         self._connection = sqlite3.connect(self._db_path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         self._initialize()
+        self._closed = False
 
     def lookup(self, event: dict[str, Any]) -> dict[str, Any] | None:
         fingerprint = self.fingerprint(event)
@@ -199,6 +219,22 @@ class KnownPatternMemory:
         message = WHITESPACE_RE.sub(" ", message)
         return message
 
+    def save_snapshot(self) -> bool:
+        with self._lock:
+            if self._closed:
+                logger.info("Skipping snapshot save for closed pattern memory")
+                return False
+            self._connection.commit()
+            return self._snapshots.save_file(_SNAPSHOT_NAME, self._db_path)
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._connection.commit()
+            self._connection.close()
+            self._closed = True
+
     def _initialize(self) -> None:
         with self._lock:
             self._connection.execute(
@@ -265,3 +301,8 @@ class KnownPatternMemory:
                 "DELETE FROM known_patterns WHERE fingerprint = ?",
                 (row["fingerprint"],),
             )
+
+    def _restore_snapshot(self) -> None:
+        restored = self._snapshots.restore_file(_SNAPSHOT_NAME, self._db_path)
+        if restored:
+            logger.info("Restored known pattern DB from snapshot into %s", self._db_path)
