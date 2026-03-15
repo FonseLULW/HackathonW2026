@@ -59,6 +59,7 @@ def build_tool_call_event_payload(
         "args": tool_args,
         "ok": not result.startswith("Tool failed:"),
         "summary": summary,
+        "result": result[:600],
         "result_preview": result[:600],
         "related_log_ids": log_ids,
     }
@@ -72,7 +73,10 @@ def build_incident_event_payload(
     urgency: str,
 ) -> dict[str, Any]:
     primary = dict(logs[0])
-    primary["incident"] = incident.model_dump()
+    incident_data = incident.model_dump()
+    primary["incident"] = incident_data
+    # Flatten incident fields to top level so dashboard normalizers find them
+    primary.update(incident_data)
     primary["source"] = primary.get("source", logs[0].get("source", "unknown"))
     primary["primary_log_id"] = logs[0].get("id")
     primary["related_log_ids"] = [log.get("id") for log in logs]

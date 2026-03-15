@@ -46,6 +46,19 @@ services:
       - snooplog
     restart: unless-stopped
 
+  dashboard:
+    build:
+      context: ./dashboard
+    ports:
+      - "3003:3000"
+    environment:
+      - NEXT_PUBLIC_WS_URL=ws://localhost:3001/ws
+    depends_on:
+      - pipeline
+    networks:
+      - snooplog
+    restart: unless-stopped
+
   dummy-app:
     build:
       context: ./dummy-app

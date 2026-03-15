@@ -50,7 +50,7 @@ export function LogStream() {
         try {
           const msg = JSON.parse(event.data) as BusMessage;
           if (
-            ["log:scored", "log:triaged"].includes("" + msg.type) ||
+            !["log:scored", "log:triaged"].includes("" + msg.type) ||
             !msg.data
           ) {
             return;
