@@ -21,6 +21,10 @@ export function useAgentStatus(): AgentStatus {
       const lastTimestamp = new Date(
         agentCalls[agentCalls.length - 1].timestamp,
       ).getTime();
+      if (Number.isNaN(lastTimestamp)) {
+        setStatus("dormant");
+        return;
+      }
       const elapsed = Date.now() - lastTimestamp;
       setStatus(elapsed < IDLE_THRESHOLD_MS ? "investigating" : "dormant");
     };

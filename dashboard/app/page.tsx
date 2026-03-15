@@ -100,7 +100,7 @@ function DashboardContent() {
               </span>
             </div>
             <div className="min-h-0 flex-1" style={{ maxHeight: "calc(100vh - 260px)" }}>
-              <IncidentFeed onSelectIncident={openIncident} />
+              <IncidentFeed onSelectIncident={openIncident} onOpenAgentTrail={openAgentTrail} />
             </div>
           </article>
 

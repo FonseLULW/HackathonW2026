@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from shared.models import IncidentReport
@@ -53,6 +54,7 @@ def build_tool_call_event_payload(
 
     return {
         "stage": "investigation",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": source,
         "tool": tool_name,
         "tool_call_id": tool_call_id,
