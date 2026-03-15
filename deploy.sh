@@ -17,7 +17,7 @@ NC='\033[0m'
 
 # ── Options ─────────────────────────────────────────────────
 OPTIONS=(
-  "Pipeline: Build Docker image (Cloud Build)"
+  "Pipeline: Build Docker image (local + push)"
   "Pipeline: Deploy to Cloud Run"
   "Dashboard: Deploy to Vercel"
   "Dummy App: Deploy to Vercel"
@@ -105,22 +105,30 @@ select_options() {
 }
 
 # ── Deploy functions ────────────────────────────────────────
+PIPELINE_BUILT="false"
+
 build_pipeline() {
+  if [[ "$PIPELINE_BUILT" == "true" ]]; then
+    echo -e "${YELLOW}Pipeline image already built in this run. Skipping rebuild.${NC}"
+    return
+  fi
+
+  echo -e "\n${BOLD}${CYAN}▸ Configuring Docker auth for Artifact Registry...${NC}"
+  gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+
   echo -e "\n${BOLD}${CYAN}▸ Building pipeline Docker image...${NC}"
-  gcloud builds submit \
-    --config=/dev/stdin \
-    --timeout=600s \
-    --project="$PROJECT_ID" <<EOF
-steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-f', 'pipeline/Dockerfile', '-t', '$IMAGE', '.']
-images:
-  - '$IMAGE'
-EOF
+  docker build -f pipeline/Dockerfile -t "$IMAGE" .
+
+  echo -e "\n${BOLD}${CYAN}▸ Pushing pipeline Docker image...${NC}"
+  docker push "$IMAGE"
+
+  PIPELINE_BUILT="true"
   echo -e "${GREEN}✓ Pipeline image built and pushed${NC}"
 }
 
 deploy_pipeline() {
+  build_pipeline
+
   echo -e "\n${BOLD}${CYAN}▸ Deploying pipeline to Cloud Run...${NC}"
   gcloud run deploy "$PIPELINE_SERVICE" \
     --image "$IMAGE" \
