@@ -26,8 +26,8 @@ filters:
 
 # Model persistence
 snapshots:
-  backend: local       # local | gcs
-  gcs_bucket: ""       # required when backend is gcs
+  backend: gcs         # local | gcs
+  gcs_bucket: "snooplog-snapshots"  # required when backend is gcs
 
 # Output integrations
 integrations:
