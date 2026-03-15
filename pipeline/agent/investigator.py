@@ -11,6 +11,7 @@ from typing import Any
 
 from pipeline.agent.payloads import (
     build_incident_event_payload,
+    build_investigation_start_payload,
     build_tool_call_event_payload,
 )
 from pipeline.llm.openrouter import OpenRouterError, get_first_message, get_message_text, parse_json_object
@@ -46,6 +47,10 @@ class HeuristicIncidentInvestigator:
         reason: str,
         urgency: str,
     ) -> dict[str, Any]:
+        await bus.emit(
+            "agent:investigation_start",
+            build_investigation_start_payload(logs=logs, reason=reason, urgency=urgency),
+        )
         combined_message = "\n".join(log.get("message", "") for log in logs).lower()
         tool_steps = self._build_tool_plan(combined_message)
         code_refs: list[CodeReference] = []
@@ -224,6 +229,11 @@ class LlmIncidentInvestigator:
     ) -> dict[str, Any]:
         if not self._llm_client.enabled:
             return await self._fallback.investigate(logs, reason=reason, urgency=urgency)
+
+        await bus.emit(
+            "agent:investigation_start",
+            build_investigation_start_payload(logs=logs, reason=reason, urgency=urgency),
+        )
 
         fallback_reason = reason
         fallback_urgency = urgency

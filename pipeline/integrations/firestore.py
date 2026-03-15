@@ -122,6 +122,31 @@ def _on_tool_call(data: dict[str, Any]) -> None:
         logger.warning("Failed to write tool call to Firestore", exc_info=True)
 
 
+def _on_investigation_start(data: dict[str, Any]) -> None:
+    try:
+        db = _get_db()
+        doc = {
+            "id": "",
+            "timestamp": data.get("timestamp", ""),
+            "tool": "__investigation_start__",
+            "tool_name": "__investigation_start__",
+            "args": {
+                "reason": data.get("reason", ""),
+                "urgency": data.get("urgency", ""),
+                "log_count": data.get("log_count", 0),
+            },
+            "result": "",
+            "result_preview": "",
+            "summary": f"Investigating {data.get('log_count', 0)} log(s): {data.get('reason', '')}",
+            "ok": True,
+            "source": data.get("source", ""),
+            "related_log_ids": data.get("log_ids", []),
+        }
+        db.collection(AGENT_CALLS_COLLECTION).add(doc)
+    except Exception:
+        logger.warning("Failed to write investigation start to Firestore", exc_info=True)
+
+
 def _on_suppressed(_data: dict[str, Any]) -> None:
     try:
         from google.cloud import firestore
@@ -176,4 +201,5 @@ def configure_firestore_integration() -> None:
     bus.subscribe("incident:updated", _on_incident_updated)
     bus.subscribe("log:triaged", _on_triaged)
     bus.subscribe("agent:tool_call", _on_tool_call)
+    bus.subscribe("agent:investigation_start", _on_investigation_start)
     bus.subscribe("log:suppressed", _on_suppressed)

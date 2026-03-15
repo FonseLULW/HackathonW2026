@@ -11,7 +11,42 @@ type AgentCallProps = {
   full?: boolean;
 };
 
-const MAX_RESULT_LINES = 80;
+const COLLAPSED_LINES = 4;
+
+function CollapsibleBlock({
+  label,
+  content,
+}: {
+  label: string;
+  content: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = content.split("\n");
+  const needsTruncation = lines.length > COLLAPSED_LINES;
+  const displayed = expanded
+    ? content
+    : lines.slice(0, COLLAPSED_LINES).join("\n");
+
+  return (
+    <div className="rounded-xl bg-[#f5f5f1] px-3 py-2">
+      <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#9a98a3]">
+        {label}
+      </p>
+      <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs text-[#4d4a57]">
+        {displayed}
+      </pre>
+      {needsTruncation && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1.5 text-[11px] font-medium text-[var(--accent)] hover:underline"
+        >
+          {expanded ? "Show less" : `Show more (${lines.length} lines)`}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function AgentCall({
   command,
@@ -21,8 +56,6 @@ export function AgentCall({
   ok,
   full = false,
 }: AgentCallProps) {
-  const [expanded, setExpanded] = useState(false);
-
   if (!full) {
     return (
       <p
@@ -35,12 +68,6 @@ export function AgentCall({
     );
   }
 
-  const resultLines = result?.split("\n") ?? [];
-  const isTruncated = resultLines.length > MAX_RESULT_LINES;
-  const displayedResult = expanded
-    ? result
-    : resultLines.slice(0, MAX_RESULT_LINES).join("\n");
-
   return (
     <div className="rounded-2xl border border-black/6 bg-white p-4 shadow-[0_2px_8px_rgba(20,20,20,0.03)]">
       <div className="mb-2 flex items-center gap-2">
@@ -52,36 +79,10 @@ export function AgentCall({
         </span>
       </div>
 
-      {args && (
-        <div className="mb-3 rounded-xl bg-[#f5f5f1] px-3 py-2">
-          <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#9a98a3]">
-            Args
-          </p>
-          <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs text-[#4d4a57]">
-            {args}
-          </pre>
-        </div>
-      )}
-
+      {args && <CollapsibleBlock label="Args" content={args} />}
       {result && (
-        <div className="rounded-xl bg-[#f5f5f1] px-3 py-2">
-          <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[#9a98a3]">
-            Result
-          </p>
-          <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs text-[#4d4a57]">
-            {displayedResult}
-          </pre>
-          {isTruncated && (
-            <button
-              type="button"
-              onClick={() => setExpanded(!expanded)}
-              className="mt-2 text-xs font-medium text-[var(--accent)] hover:underline"
-            >
-              {expanded
-                ? "Collapse"
-                : `Show full output (${resultLines.length} lines)`}
-            </button>
-          )}
+        <div className={args ? "mt-2" : ""}>
+          <CollapsibleBlock label="Result" content={result} />
         </div>
       )}
     </div>

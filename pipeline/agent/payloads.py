@@ -105,6 +105,24 @@ def build_incident_event_payload(
     return primary
 
 
+def build_investigation_start_payload(
+    *,
+    logs: list[dict[str, Any]],
+    reason: str,
+    urgency: str,
+) -> dict[str, Any]:
+    source = logs[0].get("source", "unknown") if logs else "unknown"
+    return {
+        "stage": "investigation_start",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": source,
+        "log_count": len(logs),
+        "reason": reason,
+        "urgency": urgency,
+        "log_ids": [log.get("id") for log in logs],
+    }
+
+
 def build_suppressed_event_payload(
     *,
     event: dict[str, Any],
