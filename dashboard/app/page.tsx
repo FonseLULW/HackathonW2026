@@ -52,7 +52,7 @@ function DashboardContent() {
     <main className="min-h-screen bg-[#f4f4f1] text-[var(--text-strong)]">
       {/* ── Compact Header ── */}
       <div className="border-b border-black/6 bg-white">
-        <div className="mx-auto flex max-w-[1520px] items-center justify-between gap-4 px-5 py-3.5 md:px-8">
+        <div className="mx-auto flex max-w-[1520px] items-center justify-between gap-4 px-5 py-2 md:px-8">
           <div className="flex items-center gap-4">
             <Image
               src="/logo.svg"
@@ -71,7 +71,7 @@ function DashboardContent() {
               >
                 SnoopLog
               </h1>
-              <p className="hidden pt-1 text-sm text-[var(--muted)] sm:block">
+              <p className="hidden pt-0.5 text-sm text-[var(--muted)] sm:block">
                 AI log monitoring &middot; anomaly triage &middot; incident
                 surfacing
               </p>
