@@ -1,6 +1,4 @@
-const BASE_POOL_USAGE = 30;
-
-const PRODUCTS = [
+const INITIAL_PRODUCTS = [
   {
     id: "sku_keyboard",
     name: "Signal Mechanical Keyboard",
@@ -35,32 +33,15 @@ const PRODUCTS = [
   },
 ];
 
+const PRODUCTS = INITIAL_PRODUCTS.map((product) => ({ ...product }));
+
 const state = {
-  chaos: {
-    mode: "reset",
-    poolUsage: BASE_POOL_USAGE,
-    memoryPressure: 0,
-    activeModes: [],
-  },
   orders: [],
-  retainedMemory: [],
   requestCount: 0,
 };
 
 function cloneProducts() {
   return PRODUCTS.map((product) => ({ ...product }));
-}
-
-function addMode(mode) {
-  if (!state.chaos.activeModes.includes(mode)) {
-    state.chaos.activeModes.push(mode);
-  }
-  state.chaos.mode = mode;
-}
-
-function removeAllModes() {
-  state.chaos.activeModes = [];
-  state.chaos.mode = "reset";
 }
 
 export function listProducts() {
@@ -76,12 +57,6 @@ export function getStateSnapshot() {
   return {
     products: cloneProducts(),
     orders: state.orders.slice().reverse(),
-    chaos: {
-      mode: state.chaos.mode,
-      activeModes: [...state.chaos.activeModes],
-      poolUsage: state.chaos.poolUsage,
-      memoryPressure: state.chaos.memoryPressure,
-    },
     totals: {
       requests: state.requestCount,
       orders: state.orders.length,
@@ -90,33 +65,17 @@ export function getStateSnapshot() {
   };
 }
 
-export function activateChaos(mode) {
-  switch (mode) {
-    case "db-leak":
-    case "slow-query":
-    case "auth-fail":
-    case "memory":
-      addMode(mode);
-      return {
-        mode,
-        activeModes: [...state.chaos.activeModes],
-        poolUsage: state.chaos.poolUsage,
-        memoryPressure: state.chaos.memoryPressure,
-      };
-    case "reset":
-      removeAllModes();
-      state.chaos.poolUsage = BASE_POOL_USAGE;
-      state.chaos.memoryPressure = 0;
-      state.retainedMemory = [];
-      return {
-        mode: "reset",
-        activeModes: [],
-        poolUsage: state.chaos.poolUsage,
-        memoryPressure: state.chaos.memoryPressure,
-      };
-    default:
-      return null;
+export function resetOrders() {
+  state.orders = [];
+
+  for (const product of PRODUCTS) {
+    const initialProduct = INITIAL_PRODUCTS.find((item) => item.id === product.id);
+    if (initialProduct) {
+      product.inventory = initialProduct.inventory;
+    }
   }
+
+  return getStateSnapshot();
 }
 
 export async function createOrder({ productId, quantity, email }) {
@@ -133,32 +92,6 @@ export async function createOrder({ productId, quantity, email }) {
 
   if (!email || !email.includes("@")) {
     return { ok: false, status: 400, code: "INVALID_EMAIL", details: { email } };
-  }
-
-  if (state.chaos.activeModes.includes("auth-fail")) {
-    return { ok: false, status: 401, code: "AUTH_PROVIDER_DOWN", details: { email } };
-  }
-
-  if (state.chaos.activeModes.includes("slow-query")) {
-    await delay(1200);
-  }
-
-  if (state.chaos.activeModes.includes("memory")) {
-    const chunk = `${email}:${productId}`.repeat(4000);
-    state.retainedMemory.push(chunk);
-    state.chaos.memoryPressure = Math.min(100, state.chaos.memoryPressure + 12);
-  }
-
-  if (state.chaos.activeModes.includes("db-leak")) {
-    state.chaos.poolUsage = Math.min(100, state.chaos.poolUsage + 5);
-    if (state.chaos.poolUsage >= 95) {
-      return {
-        ok: false,
-        status: 503,
-        code: "DB_POOL_EXHAUSTED",
-        details: { poolUsage: state.chaos.poolUsage },
-      };
-    }
   }
 
   if (product.inventory < quantity) {
@@ -183,13 +116,6 @@ export async function createOrder({ productId, quantity, email }) {
     ok: true,
     status: 201,
     order,
-    details: {
-      poolUsage: state.chaos.poolUsage,
-      memoryPressure: state.chaos.memoryPressure,
-    },
+    details: {},
   };
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

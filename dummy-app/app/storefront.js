@@ -1,28 +1,41 @@
 "use client";
 
-import { useState, useTransition } from "react";
-
-const CHAOS_BUTTONS = [
-  { mode: "db-leak", label: "DB Leak", tone: "bg-rose-600 text-white hover:bg-rose-700" },
-  { mode: "slow-query", label: "Slow Query", tone: "bg-amber-500 text-slate-950 hover:bg-amber-400" },
-  { mode: "auth-fail", label: "Auth Fail", tone: "bg-slate-900 text-white hover:bg-slate-700" },
-  { mode: "memory", label: "Memory Spike", tone: "bg-violet-600 text-white hover:bg-violet-700" },
-  { mode: "reset", label: "Reset", tone: "bg-emerald-600 text-white hover:bg-emerald-700" },
-];
+import { useEffect, useState, useTransition } from "react";
 
 export default function Storefront({ initialSnapshot }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [message, setMessage] = useState({
     tone: "neutral",
     title: "Storefront is live",
-    body: "Orders, traffic, and chaos controls are ready for local demo testing.",
+    body: "Orders, traffic, and product selection are ready for local demo testing.",
   });
   const [orderForm, setOrderForm] = useState({
     productId: initialSnapshot.products[0]?.id ?? "",
     quantity: "1",
     email: "demo@snooplog.dev",
   });
+  const [selectedProductId, setSelectedProductId] = useState(initialSnapshot.products[0]?.id ?? "");
+  const [orderPanelFlash, setOrderPanelFlash] = useState("idle");
+  const [activityPulse, setActivityPulse] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (orderPanelFlash === "idle") {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setOrderPanelFlash("idle"), 1200);
+    return () => window.clearTimeout(timer);
+  }, [orderPanelFlash]);
+
+  useEffect(() => {
+    if (!activityPulse) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setActivityPulse(false), 1100);
+    return () => window.clearTimeout(timer);
+  }, [activityPulse]);
 
   async function handleOrderSubmit(event) {
     event.preventDefault();
@@ -49,10 +62,6 @@ export default function Storefront({ initialSnapshot }) {
       const payload = await response.json();
 
       if (!response.ok) {
-        setSnapshot((current) => ({
-          ...current,
-          chaos: payload.chaos ?? current.chaos,
-        }));
         setMessage({
           tone: "error",
           title: "Order could not be placed",
@@ -72,7 +81,6 @@ export default function Storefront({ initialSnapshot }) {
           ...current,
           products: nextProducts,
           orders: [payload.order, ...current.orders],
-          chaos: payload.chaos ?? current.chaos,
           totals: {
             requests: current.totals.requests + 1,
             orders: current.totals.orders + 1,
@@ -85,53 +93,15 @@ export default function Storefront({ initialSnapshot }) {
         title: "Order created",
         body: `Order ${payload.order.id} placed for ${payload.order.productName}.`,
       });
+      setOrderPanelFlash("success");
+      setActivityPulse(true);
     } catch (error) {
       setMessage({
         tone: "error",
         title: "Order request failed",
         body: error instanceof Error ? error.message : "The request did not complete.",
       });
-    }
-  }
-
-  function handleChaos(mode) {
-    startTransition(() => {
-      void updateChaos(mode);
-    });
-  }
-
-  async function updateChaos(mode) {
-    try {
-      const response = await fetch(`/api/chaos/${mode}`, { method: "POST" });
-      const payload = await response.json();
-
-      if (!response.ok) {
-        setMessage({
-          tone: "error",
-          title: "Chaos update failed",
-          body: payload.error ?? "The requested chaos mode was not applied.",
-        });
-        return;
-      }
-
-      setSnapshot((current) => ({
-        ...current,
-        chaos: payload.chaos,
-      }));
-      setMessage({
-        tone: mode === "reset" ? "success" : "warning",
-        title: mode === "reset" ? "Chaos reset" : `${payload.mode} enabled`,
-        body:
-          mode === "reset"
-            ? "The app is back in a healthy state for another demo pass."
-            : "New orders will now emit the corresponding failure pattern.",
-      });
-    } catch (error) {
-      setMessage({
-        tone: "error",
-        title: "Chaos request failed",
-        body: error instanceof Error ? error.message : "The request did not complete.",
-      });
+      setOrderPanelFlash("error");
     }
   }
 
@@ -141,11 +111,19 @@ export default function Storefront({ initialSnapshot }) {
     });
   }
 
+  function handleResetOrders() {
+    startTransition(() => {
+      void resetOrders();
+    });
+  }
+
   async function selectProduct(product) {
     setOrderForm((current) => ({
       ...current,
       productId: product.id,
     }));
+    setSelectedProductId(product.id);
+    setOrderPanelFlash("highlight");
 
     try {
       await fetch("/api/products/select", {
@@ -162,7 +140,36 @@ export default function Storefront({ initialSnapshot }) {
     }
   }
 
-  const activeModes = snapshot.chaos.activeModes;
+  async function resetOrders() {
+    try {
+      const response = await fetch("/api/orders/reset", { method: "POST" });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        setMessage({
+          tone: "error",
+          title: "Order reset failed",
+          body: payload.error ?? "The storefront state could not be reset.",
+        });
+        return;
+      }
+
+      setSnapshot(payload.snapshot);
+      setMessage({
+        tone: "success",
+        title: "Orders reset",
+        body: "Order history and product inventory are back to the starting state.",
+      });
+      setOrderPanelFlash("highlight");
+      setActivityPulse(true);
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        title: "Order reset request failed",
+        body: error instanceof Error ? error.message : "The request did not complete.",
+      });
+    }
+  }
 
   return (
     <main className="min-h-screen">
@@ -191,7 +198,7 @@ export default function Storefront({ initialSnapshot }) {
               <div className="grid gap-4 sm:grid-cols-3">
                 <MetricCard label="Revenue" value={`$${snapshot.totals.revenue}`} />
                 <MetricCard label="Orders" value={`${snapshot.totals.orders}`} />
-                <MetricCard label="DB Pool" value={`${snapshot.chaos.poolUsage}%`} />
+                <MetricCard label="Requests" value={`${snapshot.totals.requests}`} />
               </div>
             </div>
 
@@ -208,9 +215,9 @@ export default function Storefront({ initialSnapshot }) {
                   </p>
                 </div>
                 <div className="grid gap-3 pt-3 text-sm text-slate-700">
-                  <BadgeRow label="Active chaos" value={activeModes.length ? activeModes.join(", ") : "none"} />
-                  <BadgeRow label="Memory pressure" value={`${snapshot.chaos.memoryPressure}%`} />
                   <BadgeRow label="Traffic mode" value="Customer reads + order writes" />
+                  <BadgeRow label="Logging" value="Structured JSON to stdout" />
+                  <BadgeRow label="Selection caveat" value="Signal keyboard logs a caught error" />
                 </div>
               </div>
             </div>
@@ -237,7 +244,11 @@ export default function Storefront({ initialSnapshot }) {
               <div className="grid gap-5 md:grid-cols-2">
                 {snapshot.products.map((product) => (
                   <article
-                    className="group overflow-hidden rounded-[1.5rem] border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-5 transition hover:-translate-y-0.5 hover:shadow-xl"
+                    className={`group overflow-hidden rounded-[1.5rem] border bg-gradient-to-br from-white to-slate-50 p-5 transition duration-300 hover:-translate-y-1 hover:shadow-xl ${
+                      selectedProductId === product.id
+                        ? "border-brand-300 shadow-[0_18px_45px_-30px_rgba(147,107,56,0.85)] ring-1 ring-brand-200"
+                        : "border-slate-200"
+                    }`}
                     key={product.id}
                   >
                     <div className="flex items-start justify-between gap-4">
@@ -258,7 +269,11 @@ export default function Storefront({ initialSnapshot }) {
                         <p className="mt-1 text-2xl font-semibold text-slate-950">${product.price}</p>
                       </div>
                       <button
-                        className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-950"
+                        className={`motion-button rounded-full border px-4 py-2 text-sm font-semibold transition duration-200 ${
+                          selectedProductId === product.id
+                            ? "border-brand-500 bg-brand-500 text-white shadow-[0_10px_30px_-18px_rgba(124,86,45,0.9)] hover:bg-brand-600"
+                            : "border-slate-300 text-slate-700 hover:border-slate-900 hover:text-slate-950"
+                        }`}
                         onClick={() => handleSelectProduct(product)}
                         type="button"
                       >
@@ -270,7 +285,11 @@ export default function Storefront({ initialSnapshot }) {
               </div>
             </section>
 
-            <section className="rounded-[2rem] border border-slate-200/80 bg-slate-950 p-6 text-white shadow-[0_24px_70px_-45px_rgba(15,23,42,0.75)]">
+            <section
+              className={`rounded-[2rem] border border-slate-200/80 bg-slate-950 p-6 text-white shadow-[0_24px_70px_-45px_rgba(15,23,42,0.75)] ${
+                activityPulse ? "panel-pulse" : ""
+              }`}
+            >
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand-200">
@@ -313,7 +332,17 @@ export default function Storefront({ initialSnapshot }) {
           </div>
 
           <aside className="space-y-8">
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white/90 p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.5)]">
+            <section
+              className={`rounded-[2rem] border bg-white/90 p-6 shadow-[0_20px_60px_-45px_rgba(15,23,42,0.5)] transition-all duration-300 ${
+                orderPanelFlash === "success"
+                  ? "border-emerald-300 ring-4 ring-emerald-100 panel-glow-success"
+                  : orderPanelFlash === "error"
+                    ? "border-rose-300 ring-4 ring-rose-100 panel-glow-error"
+                    : orderPanelFlash === "highlight"
+                      ? "border-brand-300 ring-4 ring-brand-100 panel-glow-brand"
+                      : "border-slate-200/80"
+              }`}
+            >
               <div className="space-y-2">
                 <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand-700">
                   Purchase panel
@@ -329,9 +358,11 @@ export default function Storefront({ initialSnapshot }) {
                   <select
                     className={inputClasses}
                     name="productId"
-                    onChange={(event) =>
-                      setOrderForm((current) => ({ ...current, productId: event.target.value }))
-                    }
+                    onChange={(event) => {
+                      setOrderForm((current) => ({ ...current, productId: event.target.value }));
+                      setSelectedProductId(event.target.value);
+                      setOrderPanelFlash("highlight");
+                    }}
                     value={orderForm.productId}
                   >
                     {snapshot.products.map((product) => (
@@ -367,7 +398,13 @@ export default function Storefront({ initialSnapshot }) {
                   </Field>
                 </div>
                 <button
-                  className="w-full rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                  className={`motion-button w-full rounded-full px-5 py-3 text-sm font-semibold text-white transition duration-300 disabled:cursor-not-allowed disabled:bg-slate-400 ${
+                    isPending
+                      ? "bg-slate-500"
+                      : orderPanelFlash === "success"
+                        ? "bg-emerald-600 shadow-[0_0_0_1px_rgba(16,185,129,0.15),0_0_32px_rgba(16,185,129,0.25)] hover:bg-emerald-500"
+                        : "bg-slate-950 hover:bg-slate-800"
+                  }`}
                   disabled={isPending}
                   type="submit"
                 >
@@ -381,24 +418,16 @@ export default function Storefront({ initialSnapshot }) {
                 <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand-700">
                   Demo controls
                 </p>
-                <h2 className="text-3xl text-slate-950">Chaos modes</h2>
+                <h2 className="text-3xl text-slate-950">Store controls</h2>
               </div>
               <div className="mt-5 flex flex-wrap gap-2">
-                {CHAOS_BUTTONS.map((item) => (
-                  <button
-                    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${item.tone}`}
-                    key={item.mode}
-                    onClick={() => handleChaos(item.mode)}
-                    type="button"
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-              <div className="mt-5 flex flex-wrap gap-2">
-                <StatusPill label="Mode" value={snapshot.chaos.mode} />
-                <StatusPill label="Pool" value={`${snapshot.chaos.poolUsage}%`} />
-                <StatusPill label="Memory" value={`${snapshot.chaos.memoryPressure}%`} />
+                <button
+                  className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+                  onClick={handleResetOrders}
+                  type="button"
+                >
+                  Reset orders
+                </button>
               </div>
             </section>
 
@@ -418,14 +447,7 @@ export default function Storefront({ initialSnapshot }) {
                 <QuickLink href="/api/health" label="Health JSON" />
                 <QuickLink href="/api/products" label="Products JSON" />
                 <QuickLink href="/api/products/select" label="Product select API" method="POST" />
-                <button
-                  className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm font-medium text-slate-700 transition hover:border-slate-900 hover:text-slate-950"
-                  onClick={() => handleChaos("reset")}
-                  type="button"
-                >
-                  <span>Reset from UI</span>
-                  <span className="text-xs uppercase tracking-[0.22em] text-slate-400">POST</span>
-                </button>
+                <QuickLink href="/api/orders/reset" label="Order reset API" method="POST" />
               </div>
             </section>
           </aside>

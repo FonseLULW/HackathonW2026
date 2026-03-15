@@ -30,9 +30,6 @@ export async function POST(request) {
     productId: payload.productId,
     quantity,
     email: payload.email,
-    activeModes: snapshot.chaos.activeModes,
-    poolUsage: snapshot.chaos.poolUsage,
-    memoryPressure: snapshot.chaos.memoryPressure,
   };
 
   if (!result.ok) {
@@ -46,22 +43,9 @@ export async function POST(request) {
       {
         error: result.code,
         details: result.details ?? {},
-        chaos: snapshot.chaos,
       },
       { status: result.status },
     );
-  }
-
-  if (snapshot.chaos.activeModes.includes("db-leak")) {
-    logDbLeakWarnings(snapshot.chaos.poolUsage, commonMetadata);
-  }
-
-  if (snapshot.chaos.activeModes.includes("slow-query")) {
-    logEvent("warn", "Slow order query detected", commonMetadata);
-  }
-
-  if (snapshot.chaos.activeModes.includes("memory")) {
-    logEvent("error", "Memory pressure increased after order allocation", commonMetadata);
   }
 
   logEvent("info", "Order created", {
@@ -73,19 +57,7 @@ export async function POST(request) {
   return NextResponse.json(
     {
       order: result.order,
-      chaos: snapshot.chaos,
     },
     { status: result.status },
   );
-}
-
-function logDbLeakWarnings(poolUsage, metadata) {
-  if (poolUsage >= 90) {
-    logEvent("error", `Connection pool at ${poolUsage}% capacity`, metadata);
-    return;
-  }
-
-  if (poolUsage >= 35) {
-    logEvent("warn", `Connection pool at ${poolUsage}% capacity`, metadata);
-  }
 }
