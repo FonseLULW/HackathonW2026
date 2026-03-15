@@ -1,0 +1,61 @@
+name: Traffic Generator
+
+on:
+  schedule:
+    # Run every 6 hours to keep Firestore data fresh for portfolio visitors
+    - cron: '0 */6 * * *'
+  workflow_dispatch: {} # Allow manual trigger
+
+env:
+  DUMMY_APP_URL: ${{ vars.DUMMY_APP_URL }}
+
+jobs:
+  generate-traffic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate order traffic
+        run: |
+          echo "Generating traffic against $DUMMY_APP_URL"
+
+          # Simulate normal orders
+          for i in $(seq 1 10); do
+            curl -s -o /dev/null -w "%{http_code}" \
+              "$DUMMY_APP_URL/api/orders" \
+              -X POST -H 'Content-Type: application/json' \
+              -d "{\"items\":[{\"id\":\"SKU-$i\",\"qty\":$((RANDOM % 5 + 1))}]}"
+            echo " - order $i sent"
+            sleep 1
+          done
+
+          # Simulate product browsing (generates info logs)
+          for i in $(seq 1 5); do
+            curl -s -o /dev/null "$DUMMY_APP_URL/api/products" || true
+            sleep 0.5
+          done
+
+          # Simulate error scenarios
+          curl -s -o /dev/null "$DUMMY_APP_URL/api/orders" \
+            -X POST -H 'Content-Type: application/json' \
+            -d '{"invalid": true}'
+
+          curl -s -o /dev/null "$DUMMY_APP_URL/api/orders" \
+            -X POST -H 'Content-Type: application/json' \
+            -d '{"items":[]}'
+
+          echo "Traffic generation complete"
+
+      - name: Wait for pipeline processing
+        run: |
+          echo "Waiting 45s for pipeline to process, triage, and investigate..."
+          sleep 45
+
+      - name: Verify pipeline health
+        run: |
+          PIPELINE_URL="${{ vars.PIPELINE_URL }}"
+          if [ -n "$PIPELINE_URL" ]; then
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PIPELINE_URL/health" || echo "000")
+            echo "Pipeline health check: $STATUS"
+          else
+            echo "PIPELINE_URL not set, skipping health check"
+          fi

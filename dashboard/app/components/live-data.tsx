@@ -19,6 +19,11 @@ import {
 import type { IncidentFeedItem } from "./incidentTypes";
 import type { LogEvent } from "./LogRow";
 import { resolveWebSocketUrl } from "./ws";
+import {
+  fetchHistoricalLogs,
+  fetchHistoricalIncidents,
+  fetchStats,
+} from "@/lib/firestore-history";
 
 const MAX_LOGS = 200;
 const MAX_INCIDENTS = 50;
@@ -347,10 +352,40 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
       };
     }
 
+    // Load historical data from Firestore on mount
+    async function loadHistory() {
+      try {
+        const [histLogs, histIncidents, histStats] = await Promise.all([
+          fetchHistoricalLogs(),
+          fetchHistoricalIncidents(),
+          fetchStats(),
+        ]);
+        if (histLogs.length) setLogs(histLogs as LogEvent[]);
+        if (histIncidents.length)
+          setIncidents(
+            histIncidents
+              .map(normalizeIncident)
+              .filter(Boolean) as IncidentFeedItem[],
+          );
+        if (histStats)
+          setStats({
+            logsScored: histStats.logs_scored ?? 0,
+            triagedBatches: histStats.triaged_batches ?? 0,
+            incidentsRaised: histStats.incidents_raised ?? 0,
+            toolCalls: histStats.tool_calls ?? 0,
+            logsSuppressed: histStats.logs_suppressed ?? 0,
+          });
+      } catch (e) {
+        console.warn("Could not load Firestore history:", e);
+      }
+    }
+    loadHistory();
+
     let ws: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let stopped = false;
+    let retryDelay = 1500;
 
     const connect = () => {
       setConnectionState((prev) => (prev === "connected" ? prev : "checking"));
@@ -360,6 +395,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
       ws.onopen = () => {
         setConnectionState("connected");
         setLastError(null);
+        retryDelay = 1500;
         heartbeatTimer = setInterval(() => {
           if (ws?.readyState === WebSocket.OPEN) {
             ws.send("ping");
@@ -420,7 +456,7 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
 
       ws.onerror = () => {
         setLastError(
-          "Unable to open the live event stream. The local dashboard should connect directly to ws://localhost:3001/ws.",
+          "Live stream unavailable. Viewing historical data.",
         );
       };
 
@@ -435,9 +471,10 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
         setConnectionState("disconnected");
         setLastError(
           event.reason ||
-            "Live connection closed. Check that the pipeline is running on localhost:3001.",
+            "Live stream offline. Viewing historical data from last session.",
         );
-        retryTimer = setTimeout(connect, 1500);
+        retryDelay = Math.min(retryDelay * 2, 60000);
+        retryTimer = setTimeout(connect, retryDelay);
       };
     };
 

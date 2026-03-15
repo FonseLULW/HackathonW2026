@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Dashboard reads are public. Pipeline writes via Admin SDK (bypasses rules).
+    match /snooplog-logs/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /snooplog-incidents/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /snooplog-stats/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

@@ -17,6 +17,7 @@ from pipeline.agent import (
 )
 from pipeline.agent.batcher import MediumLogBatcher
 from pipeline.integrations.discord import configure_discord_integration
+from pipeline.integrations.firestore import configure_firestore_integration
 from pipeline.llm import HeuristicTriageClient, OpenRouterChatClient, OpenRouterTriageClient
 from shared.events import bus
 
@@ -130,6 +131,7 @@ async def startup():
         app.state.medium_batcher = batcher
         logger.info("Person 2 tier router subscribed to log:scored")
     configure_discord_integration()
+    configure_firestore_integration()
 
 
 @app.on_event("shutdown")
