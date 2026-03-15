@@ -70,6 +70,9 @@ services:
       - app-logs:/app/logs
     environment:
       - PORT=3000
+      - PIPELINE_URL=http://pipeline:3001/api/ingest
+    depends_on:
+      - pipeline
     networks:
       - snooplog
     restart: unless-stopped
