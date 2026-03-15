@@ -54,16 +54,14 @@ function DashboardContent() {
       <div className="border-b border-black/6 bg-white">
         <div className="mx-auto flex max-w-[1520px] items-center justify-between gap-4 px-5 py-3.5 md:px-8">
           <div className="flex items-center gap-3">
-            <div className="overflow-hidden rounded-xl border border-black/10 bg-[#f8f8f5] shadow-sm">
-              <Image
-                src="/logo.svg"
-                alt="SnoopLog logo"
-                width={36}
-                height={36}
-                priority
-                className="h-9 w-9 object-contain"
-              />
-            </div>
+            <Image
+              src="/logo.svg"
+              alt="SnoopLog logo"
+              width={56}
+              height={56}
+              priority
+              className="h-14 w-14 shrink-0 object-contain"
+            />
             <div>
               <h1
                 className={
