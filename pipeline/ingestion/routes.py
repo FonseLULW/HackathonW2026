@@ -10,7 +10,7 @@ from fastapi import APIRouter, Request
 
 from shared.events import bus
 from shared.log_buffer import add_to_log_buffer
-from shared.models import LogEvent
+from shared.models import LogEvent, Tier
 
 from pipeline.ml.model import scorer as ml_scorer
 
@@ -74,3 +74,17 @@ def _process_log(raw: dict[str, Any] | str) -> LogEvent:
     asyncio.create_task(bus.emit("log:scored", event_dict))
 
     return event
+
+
+def _stub_score(event: LogEvent) -> float:
+    """Placeholder heuristic until real ML scorer is wired."""
+    level_scores = {"fatal": 0.95, "error": 0.7, "warn": 0.4, "info": 0.1, "debug": 0.05}
+    return level_scores.get(event.level.value, 0.2)
+
+
+def _assign_tier(score: float) -> Tier:
+    if score > 0.7:
+        return Tier.HIGH
+    if score >= 0.3:
+        return Tier.MEDIUM
+    return Tier.LOW

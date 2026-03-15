@@ -1,7 +1,4 @@
-version: "3.9"
-
 services:
-  # ── Reverse proxy (TLS termination) ───────────────────────────────────
   caddy:
     image: caddy:2
     ports:
@@ -10,15 +7,12 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
-    environment:
-      - DOMAIN=${DOMAIN:-localhost}
     networks:
       - snooplog
     depends_on:
       - pipeline
     restart: unless-stopped
 
-  # ── Pipeline (FastAPI + ML + LLM cascade + agent) ─────────────────────
   pipeline:
     build:
       context: .
@@ -33,7 +27,7 @@ services:
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
       - KNOWN_LOG_DB_PATH=/data/known_patterns.db
       - REPO_PATH=/repo
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:3003,https://*.vercel.app}
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -52,19 +46,21 @@ services:
       - snooplog
     restart: unless-stopped
 
-  # ── Dummy e-commerce app (log source) ─────────────────────────────────
   dummy-app:
     build:
       context: ./dummy-app
+    ports:
+      - "3000:3000"
     expose:
       - "3000"
     volumes:
       - app-logs:/app/logs
+    environment:
+      - PORT=3000
     networks:
       - snooplog
     restart: unless-stopped
 
-  # ── Log-forwarder sidecar ─────────────────────────────────────────────
   log-forwarder:
     build:
       context: ./log-forwarder
@@ -81,30 +77,29 @@ services:
       - snooplog
     restart: unless-stopped
 
-  # ── Traffic generator ─────────────────────────────────────────────────
   traffic-gen:
     build:
       context: ./traffic-gen
     environment:
       - TARGET_URL=http://dummy-app:3000
+      - CHAOS_MODE=${TRAFFIC_CHAOS_MODE:-db-leak}
     depends_on:
       - dummy-app
     networks:
       - snooplog
     restart: unless-stopped
 
-  # ── Repo init (runs once at startup) ──────────────────────────────────
   repo-init:
     image: alpine/git
     volumes:
       - repo-data:/repo
     environment:
-      - REPO_URL=${REPO_URL:-https://github.com/placeholder/repo.git}
+      - REPO_URL=${REPO_URL:-https://github.com/FonseLULW/HackathonW2026.git}
     entrypoint: >
       sh -c '
         if [ ! -d /repo/.git ]; then
           echo "Cloning repo..."
-          git clone "$REPO_URL" /repo
+          git clone "$$REPO_URL" /repo
         else
           echo "Repo already cloned, skipping."
         fi
@@ -113,33 +108,18 @@ services:
       - snooplog
     restart: "no"
 
-  # ── Repo sync (webhook → git pull) ───────────────────────────────────
   repo-sync:
-    image: alpine/git
+    build:
+      context: ./repo-sync
     ports:
       - "3002:3002"
     volumes:
       - repo-data:/repo
-    entrypoint: >
-      sh -c '
-        apk add --no-cache python3 &&
-        python3 -c "
-        import http.server, subprocess, json
-
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_POST(self):
-                result = subprocess.run([\"git\", \"-C\", \"/repo\", \"pull\"], capture_output=True, text=True)
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(json.dumps({\"stdout\": result.stdout, \"stderr\": result.stderr}).encode())
-            def do_GET(self):
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(b\"repo-sync ok\")
-
-        http.server.HTTPServer((\"0.0.0.0\", 3002), Handler).serve_forever()
-        "
-      '
+    environment:
+      - PORT=3002
+      - REPO_PATH=/repo
+      - REPO_SYNC_BRANCH=${REPO_SYNC_BRANCH:-}
+      - REPO_SYNC_SECRET=${REPO_SYNC_SECRET:-}
     depends_on:
       repo-init:
         condition: service_completed_successfully

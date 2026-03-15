@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  --font-body: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --color-brand-50: #f6f5f0;
+  --color-brand-100: #ece8db;
+  --color-brand-200: #d7ccb2;
+  --color-brand-300: #c0ad83;
+  --color-brand-400: #ad8b57;
+  --color-brand-500: #936b38;
+  --color-brand-600: #7c562d;
+  --color-brand-700: #644424;
+  --color-ink-950: #111215;
+}
+
+@layer base {
+  * {
+    @apply border-slate-200;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background:
+      radial-gradient(circle at top left, rgba(147, 107, 56, 0.12), transparent 28%),
+      radial-gradient(circle at right 20%, rgba(214, 196, 157, 0.2), transparent 22%),
+      linear-gradient(180deg, #f7f4ee 0%, #f8fafc 58%, #eef2f7 100%);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+  }
+}

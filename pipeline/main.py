@@ -8,6 +8,7 @@ import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+<<<<<<< HEAD
 from pipeline.agent import (
     HeuristicIncidentInvestigator,
     KnownPatternMemory,
@@ -17,6 +18,9 @@ from pipeline.agent import (
 )
 from pipeline.agent.batcher import MediumLogBatcher
 from pipeline.llm import HeuristicTriageClient, OpenRouterChatClient, OpenRouterTriageClient
+=======
+from pipeline.integrations.discord import configure_discord_integration
+>>>>>>> origin/integration-deployment
 from shared.events import bus
 
 logging.basicConfig(
@@ -126,3 +130,6 @@ async def shutdown():
     batcher = getattr(app.state, "medium_batcher", None)
     if batcher is not None:
         await batcher.shutdown()
+    configure_discord_integration()
+    # Person 2: wire tier router subscription here
+    # e.g. bus.subscribe("log:scored", tier_router.handle)
