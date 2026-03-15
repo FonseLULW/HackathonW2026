@@ -7,6 +7,7 @@ import {
   startMockLogStream,
 } from "@/lib/mockData";
 import { LogEvent, LogRow } from "./LogRow";
+import { resolveWebSocketUrl } from "./ws";
 
 const MAX_LOGS_TO_DISPLAY = 200;
 
@@ -43,16 +44,13 @@ export function LogStream() {
     let stopped = false;
 
     const connect = () => {
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001/ws";
+      const wsUrl = resolveWebSocketUrl();
       ws = new WebSocket(wsUrl);
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data) as BusMessage;
-          if (
-            !["log:scored", "log:triaged"].includes("" + msg.type) ||
-            !msg.data
-          ) {
+          if (msg.type !== "log:scored" || !msg.data) {
             return;
           }
           setLogs((prev) =>
@@ -101,7 +99,7 @@ export function LogStream() {
 
   if (logs.length === 0) {
     return (
-      <div className="rounded border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-500">
+      <div className="rounded-2xl border border-dashed border-amber-200 bg-white/60 p-4 text-xs text-slate-500">
         Waiting for `log:scored` events...
       </div>
     );
@@ -122,7 +120,7 @@ export function LogStream() {
     <div
       ref={scrollContainerRef}
       onScroll={onScroll}
-      className="h-full overflow-y-auto pr-1 font-mono text-xs [scrollbar-width:thin]"
+      className="agent-scroll h-full overflow-y-auto pr-1 font-mono text-xs"
     >
       <div className="space-y-2">{renderedRows}</div>
     </div>

@@ -6,6 +6,7 @@ import {
   startMockAgentCallStream,
 } from "@/lib/mockData";
 import { AgentCall } from "./AgentCall";
+import { resolveWebSocketUrl } from "./ws";
 
 const MAX_AGENT_CALLS = 60;
 
@@ -58,8 +59,14 @@ function normalizeAgentCall(data: unknown): AgentCallItem | null {
   );
   const args = stringifyArgs(record.args ?? record.arguments);
   const resultRaw = record.result ?? record.output ?? record.tool_result;
+  const summary = typeof record.summary === "string" ? record.summary : "";
+  const preview = typeof record.result_preview === "string" ? record.result_preview : "";
   const resultText =
-    typeof resultRaw === "string" ? resultRaw : stringifyArgs(resultRaw);
+    typeof resultRaw === "string"
+      ? resultRaw
+      : summary || preview
+        ? [summary, preview].filter(Boolean).join(" | ")
+        : stringifyArgs(resultRaw);
 
   const baseCommand =
     typeof explicitCommand === "string"
@@ -114,7 +121,7 @@ export function AgentActivity() {
     let stopped = false;
 
     const connect = () => {
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001/ws";
+      const wsUrl = resolveWebSocketUrl();
       ws = new WebSocket(wsUrl);
 
       ws.onmessage = (event) => {
@@ -183,7 +190,7 @@ export function AgentActivity() {
 
   if (calls.length === 0) {
     return (
-      <div className="rounded border border-dashed border-slate-700 bg-slate-900 p-3 text-xs text-slate-400">
+      <div className="rounded-2xl border border-dashed border-amber-200 bg-white/60 p-4 text-xs text-slate-500">
         Waiting for `agent:tool_call` events...
       </div>
     );
@@ -193,7 +200,7 @@ export function AgentActivity() {
     <div
       ref={scrollContainerRef}
       onScroll={onScroll}
-      className="agent-scroll min-h-[10vh] max-h-[10vh] overflow-y-auto pr-1 font-mono text-xs"
+      className="agent-scroll min-h-[18vh] max-h-[24vh] overflow-y-auto pr-1 font-mono text-xs"
     >
       <div className="space-y-1">{renderedCalls}</div>
     </div>

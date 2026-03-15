@@ -6,7 +6,12 @@ import {
   startMockIncidentStream,
 } from "@/lib/mockData";
 import { IncidentCard } from "./IncidentCard";
-import type { IncidentCodeRef, IncidentFeedItem } from "./incidentTypes";
+import { resolveWebSocketUrl } from "./ws";
+import type {
+  IncidentCodeRef,
+  IncidentContextEvent,
+  IncidentFeedItem,
+} from "./incidentTypes";
 
 const MAX_INCIDENTS_TO_DISPLAY = 50;
 
@@ -15,13 +20,38 @@ type BusMessage = {
   data?: unknown;
 };
 
+function normalizeContextEvents(value: unknown): IncidentContextEvent[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    .map((entry) => ({
+      id: String(entry.id ?? `${Math.random()}`),
+      level: typeof entry.level === "string" ? entry.level : undefined,
+      message: typeof entry.message === "string" ? entry.message : undefined,
+      score:
+        typeof entry.score === "number"
+          ? entry.score
+          : entry.score
+            ? Number(entry.score)
+            : undefined,
+      tier: typeof entry.tier === "string" ? entry.tier : undefined,
+    }));
+}
+
 function normalizeIncident(data: unknown): IncidentFeedItem | null {
   if (!data || typeof data !== "object") {
     return null;
   }
 
   const record = data as Record<string, unknown>;
-  const codeRefs = (record.code_refs ?? record.codeRefs ?? []) as Array<
+  const incidentRecord =
+    record.incident && typeof record.incident === "object"
+      ? (record.incident as Record<string, unknown>)
+      : record;
+  const codeRefs = (incidentRecord.code_refs ?? incidentRecord.codeRefs ?? []) as Array<
     Record<string, unknown>
   >;
   const normalizedCodeRefs: IncidentCodeRef[] = Array.isArray(codeRefs)
@@ -43,34 +73,78 @@ function normalizeIncident(data: unknown): IncidentFeedItem | null {
       : "unknown";
 
   const summary =
-    record.report ?? record.summary ?? "Incident reported (summary pending)";
+    incidentRecord.report ??
+    record.report ??
+    record.summary ??
+    "Incident reported (summary pending)";
 
-  const severity = String(record.severity ?? "medium");
+  const severity = String(incidentRecord.severity ?? record.severity ?? "medium");
   const reasoningStepsRaw = (record.reasoning_chain ??
     record.reasoningSteps ??
     []) as unknown[];
   const reasoningSteps = Array.isArray(reasoningStepsRaw)
     ? reasoningStepsRaw.map((step) => String(step))
     : [];
+  const relatedLogIds = Array.isArray(record.related_log_ids)
+    ? record.related_log_ids.map((id) => String(id))
+    : [];
+  const primaryEvent =
+    record.primary_event && typeof record.primary_event === "object"
+      ? normalizeContextEvents([record.primary_event])[0]
+      : undefined;
+  const contextEvents = normalizeContextEvents(record.context_events);
 
   return {
     id: String(record.id ?? `${Date.now()}-${Math.random()}`),
     timestamp: String(record.timestamp ?? new Date().toISOString()),
+    source: typeof record.source === "string" ? record.source : undefined,
     severity,
     summary: String(summary),
-    report: typeof record.report === "string" ? record.report : undefined,
+    report:
+      typeof incidentRecord.report === "string"
+        ? incidentRecord.report
+        : typeof record.report === "string"
+          ? record.report
+          : undefined,
     rootCause:
-      typeof record.root_cause === "string"
-        ? record.root_cause
-        : typeof record.rootCause === "string"
-          ? record.rootCause
-          : undefined,
+      typeof incidentRecord.root_cause === "string"
+        ? incidentRecord.root_cause
+        : typeof incidentRecord.rootCause === "string"
+          ? incidentRecord.rootCause
+          : typeof record.root_cause === "string"
+            ? record.root_cause
+            : typeof record.rootCause === "string"
+              ? record.rootCause
+              : undefined,
     suggestedFix:
-      typeof record.suggested_fix === "string"
-        ? record.suggested_fix
-        : typeof record.suggestedFix === "string"
-          ? record.suggestedFix
+      typeof incidentRecord.suggested_fix === "string"
+        ? incidentRecord.suggested_fix
+        : typeof incidentRecord.suggestedFix === "string"
+          ? incidentRecord.suggestedFix
+          : typeof record.suggested_fix === "string"
+            ? record.suggested_fix
+            : typeof record.suggestedFix === "string"
+              ? record.suggestedFix
+              : undefined,
+    investigationReason:
+      typeof record.investigation_reason === "string"
+        ? record.investigation_reason
+        : undefined,
+    investigationUrgency:
+      typeof record.investigation_urgency === "string"
+        ? record.investigation_urgency
+        : undefined,
+    logCount:
+      typeof record.log_count === "number"
+        ? record.log_count
+        : record.log_count
+          ? Number(record.log_count)
           : undefined,
+    relatedLogIds,
+    primaryLogId:
+      typeof record.primary_log_id === "string" ? record.primary_log_id : undefined,
+    primaryEvent,
+    contextEvents,
     codeRefs: normalizedCodeRefs,
     firstCodeRef: firstRef,
     reasoningSteps,
@@ -89,6 +163,27 @@ export function IncidentFeed() {
           report: incident.summary,
           rootCause: incident.rootCause,
           suggestedFix: incident.suggestedFix,
+          investigationReason: "Mock incident stream",
+          investigationUrgency: incident.severity,
+          logCount: 1,
+          relatedLogIds: [incident.id],
+          primaryLogId: incident.id,
+          primaryEvent: {
+            id: incident.id,
+            level: "error",
+            message: incident.summary,
+            score: 0.84,
+            tier: "high",
+          },
+          contextEvents: [
+            {
+              id: incident.id,
+              level: "error",
+              message: incident.summary,
+              score: 0.84,
+              tier: "high",
+            },
+          ],
           codeRefs: incident.codeRefs,
           firstCodeRef: incident.codeRefs[0]
             ? `${incident.codeRefs[0].file}:${incident.codeRefs[0].line}`
@@ -115,6 +210,27 @@ export function IncidentFeed() {
               report: incident.summary,
               rootCause: incident.rootCause,
               suggestedFix: incident.suggestedFix,
+              investigationReason: "Mock incident stream",
+              investigationUrgency: incident.severity,
+              logCount: 1,
+              relatedLogIds: [incident.id],
+              primaryLogId: incident.id,
+              primaryEvent: {
+                id: incident.id,
+                level: "error",
+                message: incident.summary,
+                score: 0.84,
+                tier: "high",
+              },
+              contextEvents: [
+                {
+                  id: incident.id,
+                  level: "error",
+                  message: incident.summary,
+                  score: 0.84,
+                  tier: "high",
+                },
+              ],
               codeRefs: incident.codeRefs,
               firstCodeRef: incident.codeRefs[0]
                 ? `${incident.codeRefs[0].file}:${incident.codeRefs[0].line}`
@@ -140,7 +256,7 @@ export function IncidentFeed() {
     let stopped = false;
 
     const connect = () => {
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001/ws";
+      const wsUrl = resolveWebSocketUrl();
       ws = new WebSocket(wsUrl);
 
       ws.onmessage = (event) => {
@@ -192,14 +308,14 @@ export function IncidentFeed() {
 
   if (incidents.length === 0) {
     return (
-      <div className="rounded border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-500">
+      <div className="rounded-2xl border border-dashed border-amber-200 bg-white/60 p-4 text-xs text-slate-500">
         Waiting for `incident:created` events...
       </div>
     );
   }
 
   return (
-    <div className="h-full space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin]">
+    <div className="agent-scroll h-full space-y-3 overflow-y-auto pr-1">
       {incidentCards}
     </div>
   );
